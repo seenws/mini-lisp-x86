@@ -24,6 +24,6 @@ Currently in early development — supports lexing parentheses, symbols, strings
 ### Compile and Run
 
 ```bash
-gcc main.c compiler/lexer.c -o minilisp
-./minilisp tests/stage_1/hello.lisp
+make
+./lispc <file.lisp>
 ```
