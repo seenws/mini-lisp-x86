@@ -27,14 +27,14 @@ struct ast_node {
     } as;
 };
 
-struct ast_node *ast_symbol(const char *name);
-struct ast_node *ast_string(const char *value);
-struct ast_node *ast_number(long value);
-struct ast_node *ast_list(void);
-void   ast_list_append(struct ast_node *list, struct ast_node *node);
+struct ast_node         *ast_symbol(const char *name);
+struct ast_node         *ast_string(const char *value);
+struct ast_node         *ast_number(long value);
+struct ast_node         *ast_list(void);
+void   ast_list_append  (struct ast_node *list, struct ast_node *node);
 
-struct ast_node *ast_node_new(enum node_type type);
-void   ast_node_free(struct ast_node *node);
-void   ast_node_print(struct ast_node *node, int indent);
+struct ast_node         *ast_node_create(enum node_type type);
+void   ast_node_free    (struct ast_node *node);
+void   ast_node_print   (struct ast_node *node, int indent);
 
 #endif

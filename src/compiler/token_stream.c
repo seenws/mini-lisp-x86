@@ -3,13 +3,14 @@
 
 #include "token_stream.h"
 
-struct token_stream
+struct token_stream *
 token_stream_create(struct token_array *array)
 {
-    struct token_stream *ts = {0};
+    struct token_stream *ts = malloc(sizeof *ts);
+    if (!ts) return NULL;
 
-    ts.array = array;
-    ts.pos = 0;
+    ts->array = array;
+    ts->pos = 0;
 
     return ts;
 }

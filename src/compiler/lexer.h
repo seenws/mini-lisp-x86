@@ -1,6 +1,8 @@
 #ifndef MINI_LISP_X86_COMPILER_LEXER_H_
 #define MINI_LISP_X86_COMPILER_LEXER_H_
 
+#include <stddef.h>
+
 void            init_token_handlers (void);
 struct lexer    lexer_create        (char const*src, size_t srclen);
 struct token    lexer_next          (struct lexer *l);

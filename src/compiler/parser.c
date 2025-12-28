@@ -21,41 +21,64 @@
 */
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-#include "ast.h"
 #include "parser.h"
-#include "token_stream.h"
 
-void
-token_array_init(struct token_array *ta)
-{
-    ta->count = 0;
-    ta->capacity = 256;
-    ta->tokens = malloc(ta->capacity * sizeof(struct token));
-}
+#include "../util/mlispc_strndup.h"
 
-void
-token_array_append(struct token_array *ta, struct token t)
+struct ast_node *
+parse_list(struct token_stream *ts)
 {
-    if (ta->count >= ta->capacity) {
-        ta->capacity *= 2;
-        ta->tokens = realloc(ta->tokens, ta->capacity * sizeof(struct token));
+    struct ast_node *list = ast_list();
+
+    while (!is_eof(ts) && peek_token(ts).type != TOK_RPAREN) {
+        struct ast_node *expr = parse_expression(ts);
+        ast_list_append(list, expr);
     }
 
-    // lexeme points to source buffer
-    ta->tokens[ta->count++] = t;
-}
+    if (is_eof(ts)) {
+        fprintf(stderr, "Error: Unexpected EOF while parsing list\n");
+        exit(1);  // TODO: Better error handling
+    }
 
-void
-token_array_free(struct token_array *ta)
-{
-    free(ta->tokens);
-    ta->tokens = NULL;
-    ta->count = ta->capacity = 0;
+    consume_token(ts);  // Eat the RPAREN
+    return list;
 }
 
 struct ast_node *
 parse_expression(struct token_stream *ts)
 {
-    struct ast_node_t
+    struct token t = consume_token(ts);
+
+    switch (t.type) {
+        case TOK_LPAREN:
+            return parse_list(ts);
+
+        case TOK_SYMBOL: {
+            char *sym = mlispc_strndup(t.lexeme, t.len);
+            return ast_symbol(sym);
+        }
+
+        case TOK_NUMERIC: {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "%.*s", (int)t.len, t.lexeme);
+            long num = strtol(buf, NULL, 10);
+            return ast_number(num);
+        }
+
+        case TOK_STRING: {
+            char *str = mlispc_strndup(t.lexeme + 1, t.len - 2);
+            return ast_string(str);
+        }
+
+        // TODO: Add cases for KEYWORD, FUNCTION, MACRO, etc.
+
+        default:
+            fprintf(stderr, "Error: Unexpected token type %d\n", t.type);
+            exit(1);
+    }
+
+    return NULL;
 }

@@ -18,37 +18,83 @@
     File: ast.c
     Purpose: Implements the AST (Abstract Sytax Tree) for x86_64 code generation.
 */
+#include <stdlib.h>
+#include <string.h>
 
 #include "ast.h"
 #include "lexer.h"
-#include "hashmap.h"
+#include "../util/mlispc_strdup.h"
 
-struct node *
-ast_node_create(struct token *t)
+struct ast_node *
+ast_node_create(enum node_type type)
 {
-    struct node *n = malloc(sizeof(struct node));
+    struct ast_node *n = malloc(sizeof *n);
     if (!n) return NULL;
 
-    n->token = t;
+    n->type = type;
 
-    /* Naive implementation to start, there are more types of nodes that need children,
-     * for instance function calls (+ 1 2 3) */
-    if (t.type == LPAREN) {
-        n->capacity = 16;
-        n->count    = 0;
-        n->children = calloc(n->capacity, sizeof(struct node *));
+    if (type == NODE_LIST) {
+        n->as.list.capacity = 16;
+        n->as.list.count = 0;
+        n->as.list.children =
+            calloc(n->as.list.capacity, sizeof *n->as.list.children);
 
-        if (!n->children) {
+        if (!n->as.list.children) {
             free(n);
             return NULL;
         }
-
-        return n;
     }
-
-    n->capacity = 0;
-    n->count = 0;
-    n->children = NULL;
 
     return n;
 }
+
+#include <stdlib.h>
+#include <string.h>
+#include "ast.h"
+
+struct ast_node *
+ast_symbol(const char *name)
+{
+    struct ast_node *n = ast_node_create(NODE_SYMBOL);
+    n->as.symbol = mlispc_strdup(name);
+    return n;
+}
+
+struct ast_node *
+ast_string(const char *value)
+{
+    struct ast_node *n = ast_node_create(NODE_STRING);
+    n->as.string = mlispc_strdup(value);
+    return n;
+}
+
+struct ast_node *
+ast_number(long value)
+{
+    struct ast_node *n = ast_node_create(NODE_NUMBER);
+    n->as.number = value;
+    return n;
+}
+
+struct ast_node *
+ast_list(void)
+{
+    return ast_node_create(NODE_LIST);
+}
+
+void
+ast_list_append(struct ast_node *list, struct ast_node *node)
+{
+    if (list->type != NODE_LIST) return;
+
+    if (list->as.list.count == list->as.list.capacity) {
+        list->as.list.capacity *= 2;
+        list->as.list.children = realloc(
+            list->as.list.children,
+            list->as.list.capacity * sizeof *list->as.list.children
+        );
+    }
+
+    list->as.list.children[list->as.list.count++] = node;
+}
+
