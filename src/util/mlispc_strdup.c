@@ -7,10 +7,10 @@ char *
 mlispc_strdup(const char *s)
 {
     size_t len = strlen(s);
-    void *new = malloc(len);
+    void *new = malloc(len + 1);
 
     if (new == NULL)
         return NULL;
 
-    return (char *)memcpy(new, s, len);
+    return (char *)memcpy(new, s, len + 1);
 }

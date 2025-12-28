@@ -52,6 +52,8 @@ main(int argc, char **argv)
 
     struct token_stream *ts = token_stream_create(&tokens);
 
+    struct ast_node *program = parse_expression(ts);
+
     free(source);
     token_array_free(&tokens);
 

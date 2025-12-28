@@ -56,7 +56,9 @@ struct ast_node *
 ast_symbol(const char *name)
 {
     struct ast_node *n = ast_node_create(NODE_SYMBOL);
+
     n->as.symbol = mlispc_strdup(name);
+
     return n;
 }
 
@@ -73,6 +75,7 @@ ast_number(long value)
 {
     struct ast_node *n = ast_node_create(NODE_NUMBER);
     n->as.number = value;
+
     return n;
 }
 
@@ -90,11 +93,10 @@ ast_list_append(struct ast_node *list, struct ast_node *node)
     if (list->as.list.count == list->as.list.capacity) {
         list->as.list.capacity *= 2;
         list->as.list.children = realloc(
-            list->as.list.children,
-            list->as.list.capacity * sizeof *list->as.list.children
+                list->as.list.children,
+                list->as.list.capacity * sizeof *list->as.list.children
         );
     }
 
     list->as.list.children[list->as.list.count++] = node;
 }
-

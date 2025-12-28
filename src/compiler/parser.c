@@ -57,6 +57,8 @@ parse_expression(struct token_stream *ts)
             return parse_list(ts);
 
         case TOK_SYMBOL: {
+            printf("DEBUG: Symbol token len=%zu, lexeme='%.*s'\n",
+                    t.len, (int)t.len, t.lexeme);
             char *sym = mlispc_strndup(t.lexeme, t.len);
             return ast_symbol(sym);
         }
@@ -69,7 +71,7 @@ parse_expression(struct token_stream *ts)
         }
 
         case TOK_STRING: {
-            char *str = mlispc_strndup(t.lexeme + 1, t.len - 2);
+            char *str = mlispc_strndup(t.lexeme, t.len);
             return ast_string(str);
         }
 
