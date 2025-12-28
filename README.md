@@ -29,7 +29,7 @@ Currently in early development — implements a complete lexer, parser, and AST 
   - `NODE_NIL`
 - Memory-safe string handling with custom `strdup`/`strndup` implementations
 
-### 📋 Example
+### Example
 ```lisp
 (format t "Hello, world!" 42)
 ```
