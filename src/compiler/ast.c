@@ -24,24 +24,31 @@
 #include "hashmap.h"
 
 struct node *
-node_create(struct token *t)
+ast_node_create(struct token *t)
 {
     struct node *n = malloc(sizeof(struct node));
     if (!n) return NULL;
 
+    n->token = t;
+
+    /* Naive implementation to start, there are more types of nodes that need children,
+     * for instance function calls (+ 1 2 3) */
     if (t.type == LPAREN) {
-        n->type           = NODE_LIST;
-        n->list->capacity = 16;
-        n->list->count    = 0;
-        n->list->children = (struct node **)calloc(n->list->capacity, sizeof(struct node *));
+        n->capacity = 16;
+        n->count    = 0;
+        n->children = calloc(n->capacity, sizeof(struct node *));
+
+        if (!n->children) {
+            free(n);
+            return NULL;
+        }
 
         return n;
     }
 
-    n->type = NODE_ATOM;
-    n->atom->token = t;
+    n->capacity = 0;
+    n->count = 0;
+    n->children = NULL;
 
     return n;
 }
-
-

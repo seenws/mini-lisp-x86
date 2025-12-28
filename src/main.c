@@ -2,8 +2,7 @@
 #include <stdlib.h>
 
 #include "./compiler/lexer.h"
-#include "./util/for_each_line.h"
-#include "./util/get_line.h"
+#include "./compiler/token_stream.h"
 
 #define BUFSZ 4096
 
@@ -26,11 +25,36 @@ main(int argc, char **argv)
         return 1;
     }
 
-    char buffer[BUFSZ];
+    fseek(fp, 0, SEEK_END);
+    long len = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    char *source = malloc(len + 1);
+    fread(source, 1, len, fp);
+    source[len] = '\0';
+    fclose(fp);
 
-    // see for_each_line.h in src/util
-    while (for_each_line(buffer, BUFSZ, fp, tokenize))
-        ;
+    // Tokenize the whole thing
+    struct token_array tokens;
+    token_array_init(&tokens);
+
+    struct lexer l = lexer_create(source, len);
+    init_token_handlers();
+
+    struct token t;
+    while ((t = lexer_next(&l)).type != TOK_END) {
+        if (t.type != TOK_COMMENT) {  // skip comments entirely
+            token_array_append(&tokens, t);
+        }
+    }
+
+    // Now create the stream and parse!
+    struct token_stream ts = token_stream_create(&tokens);
+
+    // Your parser will go here (e.g., parse_program(&ts))
+
+    // Cleanup
+    free(source);
+    token_array_free(&tokens);
 
     return 0;
 }

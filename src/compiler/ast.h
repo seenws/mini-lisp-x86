@@ -1,36 +1,40 @@
 #ifndef MINI_LISP_X86_SRC_COMPILER_AST_H_
 #define MINI_LISP_X86_SRC_COMPILER_AST_H_
 
-enum nodetype {
-    NODE_PROGRAM,
-    NODE_INVALID,
-    NODE_LPAREN,
-    NODE_RPAREN,
+#include "lexer.h"
+
+enum node_type {
     NODE_SYMBOL,
-    NODE_KEYWORD,
     NODE_STRING,
-    NODE_NUMERIC,
-    NODE_COMMENT,
+    NODE_NUMBER,
+    NODE_LIST,      // (a b c)
+    NODE_NIL        // ()
 };
 
-struct node {
-    enum nodetype type;
+struct ast_node {
+    enum node_type type;
 
-    union data {
-        struct node_atom atom;
-        struct node_list list;
-    };
+    union {
+        char *symbol;
+        char *string;
+        long number;
+
+        struct {
+            struct ast_node **children;
+            size_t count;
+            size_t capacity;
+        } list;
+    } as;
 };
 
-struct node_atom {
-    struct token token;
-};
+struct ast_node *ast_symbol(const char *name);
+struct ast_node *ast_string(const char *value);
+struct ast_node *ast_number(long value);
+struct ast_node *ast_list(void);
+void   ast_list_append(struct ast_node *list, struct ast_node *node);
 
-struct node_list {
-    struct node **children;
-
-    size_t count;
-    size_t capacity;
-};
+struct ast_node *ast_node_new(enum node_type type);
+void   ast_node_free(struct ast_node *node);
+void   ast_node_print(struct ast_node *node, int indent);
 
 #endif

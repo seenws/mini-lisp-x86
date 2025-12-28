@@ -24,13 +24,7 @@
 
 #include "hashmap.h"
 
-/*
- * U32HASHTABLE_LOADFACTOR - calculates the current load factor for a hash table
- * @n: number of entries currently occupied in the table, defined as a `size_t`
- * @m: total number of buckets, defined as a `size_t`
- */
-#define U32HASHTABLE_LOADFACTOR(n, m) \
-    ((n) / (m))
+#define LOAD_FACTOR_THRESHHOLD 0.75
 
 /*
  * UNUSED: Might be enabled later on for benchmarking purposes.
@@ -75,62 +69,90 @@ hash_fnv1a_32(const char *str)
 
 /*
  *  u32hashmap_create - initializes the empty table and allocates space on the heap for buckets.
- *  start with something 
+ *  Returns NULL on allocation failure
  *  @capacity: initial capacity for the table, 
  */
 struct u32hashmap *
 u32hashmap_create(size_t capacity)
 {
-    struct u32hashmap *map = malloc(sizeof(struct u32hashmap));
+    struct u32hashmap *map = malloc(sizeof(*map));
     if (!map) return NULL;
+
+    map->entries = calloc(map->capacity, sizeof(*map->entries));
+    if (!map->entries) {
+        free(map);
+        return 0;
+    }
 
     map->count = 0;
     map->capacity = capacity;
 
-    map->entries = (struct u32bucket **)calloc(map->capacity, sizeof(struct u32bucket *));
-    if (!map->entries) return NULL;
-
     return map;
 }
 
-int
-u32hashmap_insert(struct u32hashmap *map, char const *key, uint32_t val)
+// Free all memory associated with the hashmap.
+void
+u32hashmap_destroy(struct u32hashmap *map)
 {
-    if (!map || !key) return 0;
+    if (!map) return;
 
-    uint32_t hash   = hash_fnv1a_32(key);
-    size_t   idx    = hash % map->capacity;
-
-    if ((double)U32HASHMAP_LOADFACTOR(map->count, map->capacity) >= 0.7)
-        u32hashmap_resize(map);
-
-    // linear probing
     for (size_t i = 0; i < map->capacity; ++i) {
-        size_t probe = (idx + i) % map->capacity;
-        struct u32bucket *bucket = map->entries[probe];
-
-        if (bucket == NULL || bucket->status == BUCKET_EMPTY || bucket->status == BUCKET_DELETED) {
-            struct u32bucket *new = malloc(sizeof(struct u32bucket));
-            if (!new) return 0;
-
-            new->key    = key; // does not copy the key
-            new->val    = val;
-            new->status = BUCKET_FILLED;
-
-            map->entries[probe] = new;
-            map->count++;
-
-            return 1;
-        }
-
-        // overwrite the existing entry
-        if (bucket->status == BUCKET_FILLED && strcmp(bucket->key, key) == 0) {
-            bucket->val = val;
-
-            return 1;
+        struct u32bucket *bucket = map->entries[i];
+        if (bucket != NULL) {
+            free(bucket->key);
+            free(bucket);
         }
     }
 
+    free(map->entries);
+    free(map);
+}
+
+static int
+u32hashmap_resize(struct u32hashmap *map)
+{
+    if (!map)
+        return -1;
+
+    struct u32bucket   **old_entries    = map->entries;
+    size_t               old_capacity   = map->capacity;
+    size_t               old_count      = map->count;
+    size_t               new_capacity   = old_capacity * 2;
+
+    /* Allocate new bucket array */
+    map->entries = calloc(new_capacity, sizeof(*map->entries));
+    if (!map->entries) {
+        free(map);
+        return -1;
+    }
+
+    map->capacity = new_capacity;
+    map->count = 0;
+
+    // Rehash all existing entries
+    for (size_t i = 0; i < old_capacity; i++) {
+        struct u32bucket *bucket = old_entries[i];
+        
+        if (bucket && bucket->status == BUCKET_FILLED) {
+            // Insert into new table
+            if (!u32hashmap_insert(map, bucket->key, bucket->val)) {
+                // realistically we shouldn't reach here
+                free(map->entries);
+                map->entries = old_entries;
+                map->capacity = old_capacity;
+                map->count = old_count;
+                return -1;
+            }
+            
+            free(bucket->key);
+            free(bucket);
+        } else if (bucket) {
+            free(bucket->key);
+            free(bucket);
+        }
+    }
+
+    free(old_entries);
     return 0;
 }
 
@@ -146,11 +168,12 @@ u32hashmap_delete(struct u32hashmap *map, char const *key)
         size_t probe = (idx + i) % map->capacity;
         struct u32bucket *bucket = map->entries[probe];
         
-        if (!bucket) return 0;
+        if (!bucket) return 0; // empty slot
 
         if (bucket->status == BUCKET_FILLED && strcmp(bucket->key, key) == 0) {
             bucket->status = BUCKET_DELETED;
             map->count--;
+            free(bucket);
             
             return 1;
         }
@@ -159,22 +182,40 @@ u32hashmap_delete(struct u32hashmap *map, char const *key)
     return 0;
 }
 
+static int
+u32hashmap_resize_if_needed(struct u32hashmap *map)
+{
+    double load_factor = (double)map->count / (double)map->capacity;
+
+    if (load_factor >= LOAD_FACTOR_THRESHHOLD)
+        return u32hashmap(resize(map));
+
+    return 0;
+}
+
+/*
+ *  Resize the hashmap when the load factor gets too high (>= 0.75)
+ *  Returns 1 on success, 0 on failure.
+ */
 int
 u32hashmap_resize(struct u32hashmap *map)
 {
     if (!map) return 0;
 
-    // keep a history of the current buckets and reintroduce them to the new entries array
-    // with u32hashmap_insert()
     struct u32bucket **entries_old = map->entries;
-    struct u32bucket **entries_new = (struct u32bucket **)calloc(map->capacity * 2, sizeof(struct u32bucket *));
-    if (!entries_new) return 0;
+    size_t capacity_old = map->capacity;
+
+    struct u32bucket **entries_new = calloc(capacity_old * 2, sizeof(struct u32bucket *));
+    if (!entries_new) {
+        free(map);
+        return 0;
+    }
 
     map->entries    = entries_new;
-    map->capacity  *= 2;
     map->count      = 0;
+    map->capacity   = capacity_old * 2;
 
-    for (size_t i = 0; i < map->capacity; ++i)
+    for (size_t i = 0; i < map->capacity_old; ++i)
     {
         struct u32bucket *bucket = entries_old[i];
         if (bucket != NULL && bucket->status == BUCKET_FILLED) {
@@ -186,4 +227,31 @@ u32hashmap_resize(struct u32hashmap *map)
     free(entries_old);
     
     return 1;
+}
+
+/*
+ *  Look up a key and return its value
+ *  Returns 1 if found (stored in *val), 0 if not found
+ */
+int
+u32hashmap_lookup(struct u32hashmap *map, char const *key, uint32_t val)
+{
+    if (!map || !key || !val) return 0;
+
+    uint32_t hash = hash_fnv1a_32(key);
+    size_t idx = hash % map->capacity;
+
+    for (size_t i = 0; i < map->capacity; ++i) {
+        size_t probe = (idx + i) % map->capacity;
+        struct u32bucket *bucket = map->entries[probe];
+
+        if (!bucket) return 0; // empty slot
+
+        if (bucket->status == BUCKET_FILLED && strcmp(bucket->key, key) == 0) {
+            *val = bucket->val;
+            return 1;
+        }
+    }
+
+    return 0;
 }

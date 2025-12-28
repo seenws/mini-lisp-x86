@@ -25,7 +25,7 @@ enum toktype {
     TOK_KEYWORD,    // e.g. 'format'
     TOK_STRING,
     TOK_FUNCTION,
-    TOK_MACRO
+    TOK_MACRO,
     TOK_NUMERIC,
     TOK_COMMENT,
 };

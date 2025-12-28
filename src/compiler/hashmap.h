@@ -6,7 +6,7 @@ struct u32bucket {
     uint32_t     val;
 
     enum status {
-        BUCKET_EMPTY,
+        BUCKET_EMPTY = 0,
         BUCKET_FILLED,
         BUCKET_DELETED
     };
