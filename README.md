@@ -36,6 +36,31 @@ Currently in early development — implements a complete lexer, parser, and AST 
 
 Produces a complete AST with properly typed nodes.
 
+### Proof check:
+```bash
+gdb ./lispc
+break main.c:57 # as of the time of writing, line 57 is where we free the token stream.
+```
+```gdb
+run tests/stage_1/01_simple_print.lisp
+p program->as.list.children[0]->as.symbol
+p program->as.list.children[1]->as.symbol
+p program->as.list.children[2]->as.symbol
+
+p program->as.list.children[1].type
+p program->as.list.children[2].type
+p program->as.list.children[3].type
+```
+```gdb
+$1 = 0x55555555aa30 "format"
+$2 = 0x55555555aaa0 "t"
+$3 = 0x55555555ab10 "Hello, World!"
+
+$4 = NODE_SYMBOL
+$5 = NODE_SYMBOL
+$6 = NODE_STRING
+```
+
 ---
 
 ## Building
