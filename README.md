@@ -31,7 +31,7 @@ Currently in early development — implements a complete lexer, parser, and AST 
 
 ### Example
 ```lisp
-(format t "Hello, world!" 42)
+(format t "Hello, world!")
 ```
 
 Produces a complete AST with properly typed nodes.
