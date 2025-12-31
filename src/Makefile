@@ -11,6 +11,9 @@ OBJECTS = \
 	$(BUILD_DIR)/compiler/token_stream.o \
 	$(BUILD_DIR)/compiler/token_array.o \
 	$(BUILD_DIR)/compiler/ast.o \
+	$(BUILD_DIR)/compiler/hashmap.o \
+	$(BUILD_DIR)/compiler/builtin_hash.o \
+	$(BUILD_DIR)/compiler/semantic.o \
 	$(BUILD_DIR)/util/mlispc_strdup.o \
 	$(BUILD_DIR)/util/mlispc_strndup.o
 

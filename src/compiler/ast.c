@@ -48,10 +48,6 @@ ast_node_create(enum node_type type)
     return n;
 }
 
-#include <stdlib.h>
-#include <string.h>
-#include "ast.h"
-
 struct ast_node *
 ast_symbol(const char *name)
 {

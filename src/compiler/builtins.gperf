@@ -1,0 +1,21 @@
+%{
+#include "builtin_hash.h"
+%}
+
+%enum
+%define initializer-suffix ,BUILTIN_NOT
+%define hash-function-name builtin_hash
+%define lookup-function-name lookup_builtin
+%readonly-tables
+%%
++,        BUILTIN_PLUS
+-,        BUILTIN_MINUS
+*,        BUILTIN_MUL
+/,        BUILTIN_DIV
+if,       BUILTIN_IF
+let,      BUILTIN_LET
+quote,    BUILTIN_QUOTE
+lambda,   BUILTIN_LAMBDA
+defun,    BUILTIN_DEFUN
+format,   BUILTIN_FORMAT
+%%

@@ -1,4 +1,0 @@
-#ifndef MINI_LISP_X86_SRC_COMPILER_IR_H_
-#define MINI_LISP_X86_SRC_COMPILER_IR_H_
-
-#endif

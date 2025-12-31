@@ -4,6 +4,7 @@
 #include "./compiler/lexer.h"
 #include "./compiler/token_stream.h"
 #include "./compiler/parser.h"
+#include "./compiler/semantic.h"
 
 #include "./util/mlispc_strndup.h"
 #include "./util/mlispc_strdup.h"
@@ -53,6 +54,9 @@ main(int argc, char **argv)
     struct token_stream *ts = token_stream_create(&tokens);
 
     struct ast_node *program = parse_expression(ts);
+
+    struct env *global_env = NULL;
+    analyze_program(program);
 
     free(source);
     token_array_free(&tokens);
