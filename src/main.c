@@ -58,6 +58,8 @@ main(int argc, char **argv)
     struct env *global_env = NULL;
     analyze_program(program);
 
+    puts("Semantic analysis passed");
+
     free(source);
     token_array_free(&tokens);
 

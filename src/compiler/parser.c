@@ -50,12 +50,23 @@ parse_list(struct token_stream *ts)
 struct ast_node *
 parse_expression(struct token_stream *ts)
 {
-    struct token t = consume_token(ts);
+    if (is_eof(ts)) {
+        fprintf(stderr, "Error: Unexpected EOF in expression\n");
+        return NULL;
+    }
+
+    struct token t = peek_token(ts);
+
+    if (t.type == TOK_LPAREN) {
+        consume_token(ts);
+        return parse_list(ts);
+    }
+
+    // For all other cases (atoms), consume and process
+    t = consume_token(ts);
 
     switch (t.type) {
-        case TOK_LPAREN:
-            return parse_list(ts);
-
+        case TOK_FUNCTION:
         case TOK_SYMBOL: {
             char *sym = mlispc_strndup(t.lexeme, t.len);
             return ast_symbol(sym);
@@ -73,12 +84,8 @@ parse_expression(struct token_stream *ts)
             return ast_string(str);
         }
 
-        // TODO: Add cases for KEYWORD, FUNCTION, MACRO, etc.
-
         default:
-            fprintf(stderr, "Error: Unexpected token type %d\n", t.type);
+            fprintf(stderr, "Error: Unexpected token type %d (lexeme: '%.*s')\n", t.type, (int)t.len, t.lexeme);
             exit(1);
     }
-
-    return NULL;
 }
