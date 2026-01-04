@@ -97,7 +97,7 @@ src/
 - [x] Lexer with dispatch table
 - [x] Token stream abstraction
 - [x] AST generation
-- [ ] Semantic analysis
+- [x] Semantic analysis
 - [ ] Intermediate representation (IR)
 - [ ] x86_64 code generation
 - [ ] Basic runtime system

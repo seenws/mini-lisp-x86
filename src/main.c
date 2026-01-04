@@ -6,8 +6,7 @@
 #include "./compiler/parser.h"
 #include "./compiler/semantic.h"
 
-#include "./util/mlispc_strndup.h"
-#include "./util/mlispc_strdup.h"
+#include "./util/error.h"
 
 void
 usage(char *progname)
@@ -52,16 +51,25 @@ main(int argc, char **argv)
     }
 
     struct token_stream *ts = token_stream_create(&tokens);
-
     struct ast_node *program = parse_expression(ts);
 
     struct env *global_env = NULL;
-    analyze_program(program);
+    struct error_ctx *ctx = error_ctx_new(0); // default 32
+
+    analyze_program(program, ctx);
+
+    if (ctx->count != 0) {
+        error_ctx_print(ctx);
+        error_ctx_free(ctx);
+
+        return 1;
+    }
 
     puts("Semantic analysis passed");
 
     free(source);
     token_array_free(&tokens);
+    error_ctx_free(ctx);
 
     return 0;
 }

@@ -4,6 +4,7 @@
 #include "ast.h"
 #include "builtin_hash.h"
 #include "hashmap.h"
+#include "../util/error.h"
 
 enum sym_kind {
     SYM_VAR,
@@ -23,7 +24,6 @@ struct env {
     struct env *parent;
 };
 
-// Main entry point
-void analyze_program(struct ast_node *program);
+int analyze_program(struct ast_node *program, struct error_ctx *ctx);
 
 #endif
