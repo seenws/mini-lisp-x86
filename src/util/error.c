@@ -50,6 +50,8 @@ error_ctx_resize(struct error_ctx *ctx)
         return -1;
 
     size_t new_capacity = ctx->capacity * 2;
+    if (new_capacity < ctx->capacity) // overflow check
+        return 0;
 
     ctx->errors = realloc(ctx->errors, new_capacity * sizeof(struct error));
     if (ctx->errors == NULL) {
@@ -90,8 +92,6 @@ error_ctx_push(struct error_ctx *ctx, enum error_severity severity, const char *
         return -1;
 
     err->severity = severity;
-
-    printf("%s\n", err->msg);
 
     return 0;
 }

@@ -14,6 +14,7 @@ OBJECTS = \
 	$(BUILD_DIR)/compiler/hashmap.o \
 	$(BUILD_DIR)/compiler/builtin_hash.o \
 	$(BUILD_DIR)/compiler/semantic.o \
+	$(BUILD_DIR)/compiler/ir.o \
 	$(BUILD_DIR)/util/mlispc_strdup.o \
 	$(BUILD_DIR)/util/error.o \
 	$(BUILD_DIR)/util/mlispc_strndup.o

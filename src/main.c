@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
+#define _POSIX_C_SOURCE
+#include <unistd.h>
 
 #include "./compiler/lexer.h"
 #include "./compiler/token_stream.h"
@@ -8,43 +10,73 @@
 
 #include "./util/error.h"
 
-void
-usage(char *progname)
+#define VERSION 1.0
+#define DEBUG 1
+
+static inline void
+usage(void)
 {
-    printf("Error: Insufficient arguments provided | Usage: %s <file.lisp>\n", progname);
+    printf("MlispC - A minimal compiler from Common Lisp to x86_64\n");
+    puts("usage: mlispc [options] <file.lisp>");
+    puts("options:");
+    puts("  -v");
+    puts("  --version    show version info");
+    puts("  -h");
+    puts("  --help       show this help");
     exit(1);
+}
+
+/* ! returns malloc'd buffer */
+char *
+read_file(char const *filename)
+{
+    FILE *fp = fopen(filename, "r");
+    long flen;
+    char *buffer;
+
+    if (fp == NULL) {
+        printf("minilisp: Cannot open file `%s`.\n", filename);
+        perror("Error");
+        return NULL;
+    }
+
+    fseek(fp, 0, SEEK_END);
+    flen = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    buffer = malloc(flen + 1);
+
+    if (buffer == NULL) {
+        printf("minilisp: Cannot allocate memory.\n");
+        perror("Error");
+        return NULL;
+    }
+
+    fread(buffer, 1, flen, fp);
+    buffer[flen] = '\0';
+    fclose(fp);
+
+    return buffer;
 }
 
 int
 main(int argc, char **argv)
 {
-    if (argc != 2)
-        usage(argv[0]);
+    if (argc < 2)
+        usage();
 
-    FILE *fp= fopen(argv[1], "r");
-    if (fp == NULL) {
-        printf("Encountered I/O Error: Unable to read %s\n", argv[1]);
+    char *source = read_file(argv[1]);
+
+    if (source == NULL)
         return 1;
-    }
-
-    fseek(fp, 0, SEEK_END);
-
-    long len = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-
-    char *source = malloc(len + 1);
-    fread(source, 1, len, fp);
-    source[len] = '\0';
-
-    fclose(fp);
 
     struct token_array tokens;
+    struct token t;
+
     token_array_init(&tokens);
 
-    struct lexer l = lexer_create(source, len);
+    struct lexer l = lexer_create(source, strlen(source));
     init_token_handlers();
 
-    struct token t;
     while ((t = lexer_next(&l)).type != TOK_END) {
         if (t.type != TOK_COMMENT)
             token_array_append(&tokens, t);
@@ -64,8 +96,6 @@ main(int argc, char **argv)
 
         return 1;
     }
-
-    puts("Semantic analysis passed");
 
     free(source);
     token_array_free(&tokens);

@@ -39,7 +39,8 @@ static void analyze_symbol(struct ast_node *, struct env *, struct error_ctx *ct
 static void analyze_if(struct ast_node *, struct env *, struct error_ctx *ctx);
 static void analyze_format(struct ast_node *, struct env *, struct error_ctx *ctx);
 static void analyze_arithmetic(struct ast_node *, struct env *, struct error_ctx *ctx);
-static void analyze_function_call(struct ast_node *, struct env *, struct error_ctx *ctc);
+static void analyze_function_call(struct ast_node *, struct env *, struct error_ctx *ctx);
+static void analyze_let(struct ast_node *, struct env *, struct error_ctx *ctx);
 static void init_global_env();
 
 static struct env *global_env = NULL;
@@ -130,6 +131,8 @@ init_global_env(void)
     env_insert(global_env, "-", sym_info_new(SYM_FUNC, 2, -1));
     env_insert(global_env, "*", sym_info_new(SYM_FUNC, 2, -1));
     env_insert(global_env, "/", sym_info_new(SYM_FUNC, 2, -1));
+    env_insert(global_env, "format", sym_info_new(SYM_FUNC, 2, -1));
+    env_insert(global_env, "let", sym_info_new(SYM_FUNC, 1, -1));
 }
 
 static void
@@ -160,6 +163,10 @@ analyze_list(struct ast_node *node, struct env *env, struct error_ctx *ctx)
 
         case BUILTIN_FORMAT:
             analyze_format(node, env, ctx);
+            break;
+
+        case BUILTIN_LET:
+            analyze_let(node, env, ctx);
             break;
 
         case BUILTIN_NOT:
@@ -202,12 +209,13 @@ analyze_node(struct ast_node *node, struct env *env, struct error_ctx *ctx)
     }
 }
 
+// Checks if a symbol is present in the symbol table
 static void
 analyze_symbol(struct ast_node *node, struct env *env, struct error_ctx *ctx)
 {
     struct sym_info *info = env_lookup(env, node->as.symbol);
     if (!info) {
-        error_ctx_push(ctx, ERR_ERROR, "Error: Undefined variable '%s'", node->as.symbol);
+        error_ctx_push(ctx, ERR_ERROR, "Error: Undefined variable '%s' is unbound.", node->as.symbol);
         return;
     }
 }
@@ -228,13 +236,27 @@ analyze_if(struct ast_node *node, struct env *env, struct error_ctx *ctx)
         analyze_node(node->as.list.children[3], env, ctx);  // else
 }
 
+
 static void
 analyze_format(struct ast_node *node, struct env *env, struct error_ctx *ctx)
 {
     size_t nargs = node->as.list.count - 1;
     if (nargs < 2) {
-        error_ctx_push(ctx, ERR_ERROR, "Error: Invalid number of arguments passed to 'format'\n");
-        printf("DEBUG: Push attempted for '%s'\n", node->as.symbol);
+        error_ctx_push(ctx, ERR_ERROR, "Error: Invalid number of arguments passed to 'format'\n"
+                "Expected: format t\n"
+                "          format nil\n");
+
+        return;
+    }
+
+    const char *dest = node->as.list.children[1]->as.symbol;
+    if (strcmp(dest, "t") != 0 || strcmp(dest, "nil") == 0) {
+        error_ctx_push(ctx, ERR_ERROR, "Error: Invalid destination provided to function `format`\n"
+                "Expected: format t\n"
+                "          format nil\n"
+                "Received: format %s", dest);
+
+        return;
     }
 
     for (size_t i = 1; i < node->as.list.count; ++i)
@@ -242,11 +264,75 @@ analyze_format(struct ast_node *node, struct env *env, struct error_ctx *ctx)
 }
 
 static void
+analyze_let(struct ast_node *node, struct env *env, struct error_ctx *ctx)
+{
+    size_t nargs = node->as.list.count - 1;
+    if (nargs < 1) {
+        error_ctx_push(ctx, ERR_ERROR, "Error: 'let' expects at least one argument (bindings list).\n");
+        return;
+    }
+
+    struct ast_node *bindings = node->as.list.children[1];
+    if (bindings->type != NODE_LIST) {
+        error_ctx_push(ctx, ERR_ERROR, "Error: First argument to 'let' must be a list of bindings.\n");
+        return;
+    }
+
+    struct env *local_env = env_new(env);
+    if (local_env == NULL) {
+        error_ctx_push(ctx, ERR_ERROR, "Error: Failed to create local environment for 'let'.\n");
+        return;
+    }
+
+    for (size_t i = 0; i < bindings->as.list.count; ++i) {
+        struct ast_node *binding = bindings->as.list.children[i];
+        if (binding->type != NODE_LIST || binding->as.list.count != 2) {
+            error_ctx_push(ctx, ERR_ERROR, "Error: Each binding in 'let' must be a list of (symbol value).\n");
+            env_free(local_env);
+            return;
+        }
+
+        struct ast_node *var = binding->as.list.children[0];
+        struct ast_node *val = binding->as.list.children[1];
+
+        if (var->type != NODE_SYMBOL) {
+            error_ctx_push(ctx, ERR_ERROR, "Error: Binding variable must be a symbol.\n");
+            env_free(local_env);
+            return;
+        }
+
+        if (env_lookup(local_env, var->as.symbol)) {
+            error_ctx_push(ctx, ERR_ERROR, "Error: Duplicate binding '%s' in 'let'.\n", var->as.symbol);
+            env_free(local_env);
+            return;
+        }
+
+        analyze_node(val, env, ctx);
+
+        struct sym_info *info = sym_info_new(SYM_VAR, 0, 0);
+        if (!info || env_insert(local_env, var->as.symbol, info) != 0) {
+            error_ctx_push(ctx, ERR_ERROR, "Error: Failed to insert binding '%s'.\n", var->as.symbol);
+            if (info) free(info);
+            env_free(local_env);
+            return;
+        }
+    }
+
+    for (size_t i = 2; i < node->as.list.count; ++i) {
+        analyze_node(node->as.list.children[i], local_env, ctx);
+    }
+
+    env_free(local_env);
+}
+
+static void
 analyze_arithmetic(struct ast_node *node, struct env *env, struct error_ctx *ctx)
 {
     size_t nargs = node->as.list.count - 1;
-    if (nargs < 2) {
-        error_ctx_push(ctx, ERR_ERROR, "Error: Arithmetic operation '%s' expects two arguments.\n", node->as.symbol);
+    if (nargs < 1) {
+        error_ctx_push(ctx, ERR_ERROR, "Error: Arithmetic operation '%s' expects at least one arguments.\n",
+                node->as.list.children[0]->as.symbol);
+
         return;
     }
 
@@ -264,7 +350,10 @@ analyze_function_call(struct ast_node *node, struct env *env, struct error_ctx *
     struct sym_info *info = env_lookup(env, op->as.symbol);  // Should exist
 
     if (nargs < (size_t)info->min_arity || (info->max_arity != -1 && nargs > (size_t)info->max_arity)) {
-        error_ctx_push(ctx, ERR_ERROR, "Error: Invalid number of arguments passed to '%s'\n", node->as.symbol);
+        error_ctx_push(ctx, ERR_ERROR, "Error: Invalid number of arguments passed to '%s'\n"
+                "Expected: %zu-%zu\n"
+                "Received: %zu\n", node->as.symbol, info->min_arity, info->max_arity, nargs);
+
         return;
     }
 
