@@ -7,5 +7,6 @@
 
 struct ast_node *parse_list(struct token_stream *ts);
 struct ast_node *parse_expression(struct token_stream *ts);
+struct ast_node *parse_program(struct token_stream *ts);
 
 #endif

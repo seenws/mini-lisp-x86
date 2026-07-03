@@ -1,6 +1,6 @@
 /*
     mini-lisp-x86 - A compiler for a subset of Common Lisp to x86_64
-    Copyright (C) 2025 BolvarsDad
+    Copyright (C) 2025 Sinan Olsson-Pasic
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -32,6 +32,8 @@ ast_node_create(enum node_type type)
     if (!n) return NULL;
 
     n->type = type;
+    n->line = 0;
+    n->col  = 0;
 
     if (type == NODE_LIST) {
         n->as.list.capacity = 16;
@@ -79,6 +81,34 @@ struct ast_node *
 ast_list(void)
 {
     return ast_node_create(NODE_LIST);
+}
+
+void
+ast_node_free(struct ast_node *node)
+{
+    if (node == NULL)
+        return;
+
+    switch (node->type) {
+        case NODE_SYMBOL:
+            free(node->as.symbol);
+            break;
+
+        case NODE_STRING:
+            free(node->as.string);
+            break;
+
+        case NODE_LIST:
+            for (size_t i = 0; i < node->as.list.count; ++i)
+                ast_node_free(node->as.list.children[i]);
+            free(node->as.list.children);
+            break;
+
+        default:
+            break;
+    }
+
+    free(node);
 }
 
 void

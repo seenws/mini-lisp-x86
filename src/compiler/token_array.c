@@ -1,6 +1,6 @@
 /*
     mini-lisp-x86 - A compiler for a subset of Common Lisp to x86_64
-    Copyright (C) 2025 BolvarsDad
+    Copyright (C) 2025 Sinan Olsson-Pasic
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by

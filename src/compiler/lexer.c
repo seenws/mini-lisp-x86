@@ -1,6 +1,6 @@
 /*
     mini-lisp-x86 - A compiler for a subset of Common Lisp to x86_64
-    Copyright (C) 2025 BolvarsDad
+    Copyright (C) 2025 Sinan Olsson-Pasic
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -94,9 +94,11 @@ lexer_create(char const *src, size_t srclen)
 {
     struct lexer l;
 
-    l.content   = src;
-    l.len       = srclen;
-    l.cursor    = 0;
+    l.content    = src;
+    l.len        = srclen;
+    l.cursor     = 0;
+    l.line       = 1;
+    l.line_start = 0;
 
     return l;
 }
@@ -137,7 +139,23 @@ struct token
 lex_function(struct lexer *l)
 {
     struct token t;
-    
+    char c = l->content[l->cursor];
+
+    // a sign directly followed by a digit is a numeric literal (-17, +42),
+    // not an operator
+    if ((c == '-' || c == '+')
+            && l->cursor + 1 < l->len
+            && isdigit((unsigned char)l->content[l->cursor + 1])) {
+        size_t start = l->cursor;
+
+        l->cursor++;
+        t = lex_numeric(l);
+        t.lexeme = &l->content[start];
+        t.len += 1;
+
+        return t;
+    }
+
     t.lexeme    = &l->content[l->cursor];
     t.len       = 1;
     t.type      = TOK_FUNCTION;
@@ -152,8 +170,10 @@ lex_numeric(struct lexer *l)
 {
     struct token t;
     size_t start = l->cursor;
+    char c;
 
-    while (isdigit(l->content[l->cursor]) || strchr("./", l->content[l->cursor]))
+    while (l->cursor < l->len
+            && (c = l->content[l->cursor], isdigit((unsigned char)c) || c == '.' || c == '/'))
         l->cursor++;
 
     t.lexeme    = &l->content[start];
@@ -185,7 +205,8 @@ lex_keyword(struct lexer *l)
     struct token t;
     size_t start = l->cursor;
 
-    while(l->cursor < l->len && l->content[l->cursor] != ' ')
+    // ':' is a symbol char, so this consumes the leading colon too
+    while (l->cursor < l->len && is_symbol_char(l->content[l->cursor]))
         l->cursor++;
 
     t.lexeme    = &l->content[start];
@@ -248,24 +269,44 @@ lexer_next(struct lexer *l)
 {
     struct token t;
 
-    t.lexeme = NULL;
-    t.len = 0;
-    t.type = TOK_INVALID;
-
-    while (l->cursor < l->len && isspace(l->content[l->cursor]))
+    while (l->cursor < l->len && isspace((unsigned char)l->content[l->cursor])) {
+        if (l->content[l->cursor] == '\n') {
+            l->line++;
+            l->line_start = l->cursor + 1;
+        }
         l->cursor++;
+    }
 
     if (l->cursor >= l->len) {
         t.lexeme = NULL;
         t.len    = 0;
         t.type   = TOK_END;
+        t.line   = l->line;
+        t.col    = l->cursor - l->line_start + 1;
 
         return t;
     }
 
+    size_t tok_start = l->cursor;
+    size_t tok_line  = l->line;
+    size_t tok_col   = l->cursor - l->line_start + 1;
+
     char c = l->content[l->cursor];
 
-    return token_handlers[(unsigned char)c](l);
+    t = token_handlers[(unsigned char)c](l);
+    t.line = tok_line;
+    t.col  = tok_col;
+
+    // handlers may consume newlines (e.g. multi-line strings);
+    // keep the line counters in sync with wherever the cursor landed
+    for (size_t i = tok_start; i < l->cursor && i < l->len; ++i) {
+        if (l->content[i] == '\n') {
+            l->line++;
+            l->line_start = i + 1;
+        }
+    }
+
+    return t;
 }
 
 void

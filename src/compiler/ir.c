@@ -1,3 +1,25 @@
+/*
+    mini-lisp-x86 - A compiler for a subset of Common Lisp to x86_64
+    Copyright (C) 2025 Sinan Olsson-Pasic
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+    File: ir.c
+    Purpose: Implements the intermediate representation (IR) program buffer
+    and AST-to-IR translation.
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -23,7 +45,7 @@ ir_program_new(void) {
     p->str_count = 0;
     p->str_capacity = PROGRAM_MAX_SIZE;
 
-    if (p->strings == NULL) {
+    if (p->instructions == NULL || p->strings == NULL) {
         ir_program_free(p); // allocation failure, abort
         return NULL;
     }
@@ -97,6 +119,7 @@ ir_program_push(struct ir_program *p, enum ir_ops op, int64_t operand)
 
     p->instructions[p->count].op = op;
     p->instructions[p->count].operand = operand;
+    p->count++;
 
     return 0;
 }

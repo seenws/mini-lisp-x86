@@ -12,6 +12,8 @@ enum error_severity {
 struct error {
     enum error_severity severity;
     const char *msg;
+    size_t line;    // 1-based source position, 0 if unknown
+    size_t col;
 };
 
 struct error_ctx {
@@ -21,7 +23,7 @@ struct error_ctx {
 };
 
 struct error_ctx   *error_ctx_new       (size_t initial_size);
-int                 error_ctx_push      (struct error_ctx *ctx, enum error_severity severity, const char *fmt, ...);
+int                 error_ctx_push      (struct error_ctx *ctx, enum error_severity severity, size_t line, size_t col, const char *fmt, ...);
 int                 error_ctx_resize    (struct error_ctx *ctx);
 struct error       *error_ctx_pop       (struct error_ctx *ctx);
 void                error_ctx_free      (struct error_ctx *ctx);

@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -std=iso9899:1999 -g -O0 -I.
+CFLAGS = -Wall -Wextra -std=iso9899:1999 -g -O0 -I. -MMD -MP
 
 BUILD_DIR = build
 TARGET = lispc
@@ -38,6 +38,9 @@ $(BUILD_DIR)/util/%.o: ./util/%.c
 
 clean:
 	rm -rf $(BUILD_DIR) $(TARGET)
+
+# auto-generated header dependencies (-MMD)
+-include $(OBJECTS:.o=.d)
 
 .PHONY: all clean
 

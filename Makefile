@@ -1,11 +1,7 @@
-CFLAGS=-std=gnu99 -g -Wall -Wextra
-
-.PHONY: clean test
-
-minilisp: minilisp.c
+all:
+	$(MAKE) -C src
 
 clean:
-	rm -f minilisp *~
+	$(MAKE) -C src clean
 
-test: minilisp
-	@./test.sh
+.PHONY: all clean

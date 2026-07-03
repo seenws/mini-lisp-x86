@@ -1,7 +1,29 @@
+/*
+    mini-lisp-x86 - A compiler for a subset of Common Lisp to x86_64
+    Copyright (C) 2025 Sinan Olsson-Pasic
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+    File: main.c
+    Purpose: Entry point for the mlispc compiler driver; reads a source file
+    and drives it through the lexer, parser, and semantic analyzer, reporting
+    any diagnostics.
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
-#define _POSIX_C_SOURCE
-#include <unistd.h>
+#include <string.h>
 
 #include "./compiler/lexer.h"
 #include "./compiler/token_stream.h"
@@ -83,23 +105,23 @@ main(int argc, char **argv)
     }
 
     struct token_stream *ts = token_stream_create(&tokens);
-    struct ast_node *program = parse_expression(ts);
+    struct ast_node *program = parse_program(ts);
 
-    struct env *global_env = NULL;
     struct error_ctx *ctx = error_ctx_new(0); // default 32
+    int status = 0;
 
     analyze_program(program, ctx);
 
     if (ctx->count != 0) {
         error_ctx_print(ctx);
-        error_ctx_free(ctx);
-
-        return 1;
+        status = 1;
     }
 
+    ast_node_free(program);
+    free(ts);
     free(source);
     token_array_free(&tokens);
     error_ctx_free(ctx);
 
-    return 0;
+    return status;
 }

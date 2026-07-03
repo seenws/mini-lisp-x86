@@ -4,17 +4,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#include <stdint.h>
-
-typedef int64_t word;
-
-#define INTEGER_TAG 0x0
-#define INTEGER_MASK 0x3
-#define INTEGER_SHIFT 2
-
-#define STRING_TAG 0x1  // Example tag for string pointers
-
-#include <stdint.h>
+#include "ast.h"
 
 typedef int64_t word;  // 64-bit tagged object
 
@@ -42,7 +32,6 @@ typedef int64_t word;  // 64-bit tagged object
  *               = 0b...000100000000001
  */
 #define STRING_TAG    0x1
-
 
 /*
  * ENCODE_INTEGER(value)
@@ -78,7 +67,6 @@ typedef int64_t word;  // 64-bit tagged object
  */
 #define DECODE_INTEGER(obj) \
     ((long)((word)(obj) >> INTEGER_SHIFT))
-
 
 /*
  * ENCODE_STRING(ptr)
@@ -117,7 +105,6 @@ typedef int64_t word;  // 64-bit tagged object
 #define DECODE_STRING(obj) \
     ((word)(obj) & ~(word)STRING_TAG)
 
-
 /*
  * IS_INTEGER(obj)
  *
@@ -151,7 +138,6 @@ typedef int64_t word;  // 64-bit tagged object
  */
 #define IS_STRING(obj) \
     (((word)(obj) & 0x7) == STRING_TAG)
-
 
 enum ir_ops {
     IR_OP_NOP = 0,
@@ -187,6 +173,11 @@ struct ir_program {
     size_t str_capacity;
 };
 
-int generate_ir_program(struct ast_node *node, struct ir_program *p);
+struct ir_program  *ir_program_new      (void);
+void                ir_program_free     (struct ir_program *p);
+int                 ir_program_push     (struct ir_program *p, enum ir_ops op, int64_t operand);
+size_t              ir_program_str_push (struct ir_program *p, const char *str);
+
+int translate_code_block(struct ast_node *node, struct ir_program *p);
 
 #endif

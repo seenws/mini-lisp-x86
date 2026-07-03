@@ -1,6 +1,6 @@
 /*
     mini-lisp-x86 - A compiler for a subset of Common Lisp to x86_64
-    Copyright (C) 2025 BolvarsDad
+    Copyright (C) 2025 Sinan Olsson-Pasic
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -55,10 +55,18 @@ parse_expression(struct token_stream *ts)
     }
 
     struct token t = peek_token(ts);
+    struct ast_node *node = NULL;
 
     if (t.type == TOK_LPAREN) {
         consume_token(ts);
-        return parse_list(ts);
+        node = parse_list(ts);
+
+        if (node != NULL) {
+            node->line = t.line;
+            node->col  = t.col;
+        }
+
+        return node;
     }
 
     // For all other cases (atoms), consume and process
@@ -66,25 +74,57 @@ parse_expression(struct token_stream *ts)
 
     switch (t.type) {
         case TOK_FUNCTION:
+        case TOK_KEYWORD:
         case TOK_SYMBOL: {
             char *sym = mlispc_strndup(t.lexeme, t.len);
-            return ast_symbol(sym);
+            node = ast_symbol(sym);
+            free(sym);  // ast_symbol keeps its own copy
+            break;
         }
 
         case TOK_NUMERIC: {
             char buf[32];
             snprintf(buf, sizeof(buf), "%.*s", (int)t.len, t.lexeme);
             long num = strtol(buf, NULL, 10);
-            return ast_number(num);
+            node = ast_number(num);
+            break;
         }
 
         case TOK_STRING: {
             char *str = mlispc_strndup(t.lexeme, t.len);
-            return ast_string(str);
+            node = ast_string(str);
+            free(str);  // ast_string keeps its own copy
+            break;
         }
 
         default:
-            fprintf(stderr, "Error: Unexpected token type %d (lexeme: '%.*s')\n", t.type, (int)t.len, t.lexeme);
+            fprintf(stderr, "Error: %zu:%zu: Unexpected token type %d (lexeme: '%.*s')\n",
+                    t.line, t.col, t.type, (int)t.len, t.lexeme);
             exit(1);
     }
+
+    if (node != NULL) {
+        node->line = t.line;
+        node->col  = t.col;
+    }
+
+    return node;
+}
+
+// A program is a sequence of top-level forms; collect them
+// as children of a single root list node.
+struct ast_node *
+parse_program(struct token_stream *ts)
+{
+    struct ast_node *program = ast_list();
+
+    while (!is_eof(ts)) {
+        struct ast_node *expr = parse_expression(ts);
+        if (expr == NULL)
+            break;
+
+        ast_list_append(program, expr);
+    }
+
+    return program;
 }

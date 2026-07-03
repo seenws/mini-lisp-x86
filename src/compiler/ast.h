@@ -14,6 +14,9 @@ enum node_type {
 struct ast_node {
     enum node_type type;
 
+    size_t line;    // 1-based source position, 0 if unknown
+    size_t col;
+
     union {
         char *symbol;
         char *string;

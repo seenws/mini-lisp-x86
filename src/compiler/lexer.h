@@ -36,12 +36,16 @@ struct token {
     char const     *lexeme;
     size_t          len;
     enum toktype    type;
+    size_t          line;   // 1-based
+    size_t          col;    // 1-based
 };
 
 struct lexer {
     char const     *content;
     size_t          len;
     size_t          cursor;
+    size_t          line;       // 1-based, line of the current cursor
+    size_t          line_start; // byte offset where the current line begins
 };
 
 #endif /* MINI_LISP_X86_COMPILER_LEXER_H_ */
