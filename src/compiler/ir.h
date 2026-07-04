@@ -3,8 +3,30 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdio.h>
 
 #include "ast.h"
+#include "../util/error.h"
+
+/*
+ * The IR is three-address code (TAC): every instruction names its
+ * destination and up to two sources explicitly.
+ *
+ *   t2 = add t0, t1      -->  { op=IR_OP_ADD, dst=2, src1=0, src2=1 }
+ *
+ * Temps (t0, t1, ...) are virtual registers: unlimited in number,
+ * numbered by a per-program counter. Mapping temps onto machine
+ * registers and stack slots is codegen's job, not the IR's. A field
+ * that an instruction does not use holds IR_NONE.
+ *
+ * Every temp holds a tagged word (see the encoding macros below).
+ * Consequences for codegen:
+ *   ADD/SUB  work directly on tagged integers (the 00 tag survives)
+ *   MUL      (a<<2) * (b<<2) == (a*b)<<4, so untag one operand first
+ *   DIV      untag both operands, divide, re-encode the quotient
+ */
+
+#define IR_NONE (-1)  // "this operand field is unused"
 
 typedef int64_t word;  // 64-bit tagged object
 
@@ -141,26 +163,28 @@ typedef int64_t word;  // 64-bit tagged object
 
 enum ir_ops {
     IR_OP_NOP = 0,
-    IR_OP_LOAD_IMM,
-    IR_OP_LOAD_STR,
-    IR_OP_LOAD_SYM,
-    IR_OP_LOAD_NIL,
-    IR_OP_PUSH,
-    IR_OP_POP,
-    IR_OP_ADD,
-    IR_OP_SUB,
-    IR_OP_DIV,
-    IR_OP_MUL,
+    IR_OP_LOAD_IMM,     // dst = imm (tagged constant)
+    IR_OP_LOAD_STR,     // dst = tagged address of strings[imm]
+    IR_OP_LOAD_SYM,     // dst = value of variable (future)
+    IR_OP_LOAD_NIL,     // dst = nil (representation TBD)
+    IR_OP_ADD,          // dst = src1 + src2
+    IR_OP_SUB,          // dst = src1 - src2
+    IR_OP_MUL,          // dst = src1 * src2
+    IR_OP_DIV,          // dst = src1 / src2
+    IR_OP_NEG,          // dst = -src1
     IR_OP_CALL_BUILTIN,
     IR_OP_CALL,
-    IR_OP_RETURN,
+    IR_OP_RETURN,       // return src1 to the runtime
     IR_OP_JMP,
     IR_OP_COUNT
 };
 
 struct ir_instr {
     enum ir_ops op;
-    int64_t operand;
+    int dst;            // destination temp, IR_NONE if unused
+    int src1;           // source temps, IR_NONE if unused
+    int src2;
+    int64_t imm;        // immediate payload (LOAD_IMM value, LOAD_STR index)
 };
 
 struct ir_program {
@@ -171,13 +195,25 @@ struct ir_program {
     char **strings; // .data section
     size_t str_count;
     size_t str_capacity;
+
+    int temp_count; // next virtual register number
 };
 
 struct ir_program  *ir_program_new      (void);
 void                ir_program_free     (struct ir_program *p);
-int                 ir_program_push     (struct ir_program *p, enum ir_ops op, int64_t operand);
-size_t              ir_program_str_push (struct ir_program *p, const char *str);
+int                 ir_emit             (struct ir_program *p, enum ir_ops op,
+                                         int dst, int src1, int src2, int64_t imm);
+int64_t             ir_program_str_push (struct ir_program *p, const char *str);
+int                 ir_new_temp         (struct ir_program *p);
+void                ir_program_print    (const struct ir_program *p, FILE *out);
 
-int translate_code_block(struct ast_node *node, struct ir_program *p);
+/* Translation must only run on a semantically validated AST */
+
+/* Translate one expression; returns the temp holding its value, or -1 on error. */
+int translate_expr(struct ast_node *node, struct ir_program *p, struct error_ctx *ctx);
+
+/* Translate a whole program (root list of top-level forms) and emit a
+ * final RETURN of the last form's value. Returns 0 on success, -1 on error. */
+int translate_program(struct ast_node *program, struct ir_program *p, struct error_ctx *ctx);
 
 #endif

@@ -22,24 +22,34 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
 
 #include "parser.h"
 
 #include "../util/mlispc_strndup.h"
 
+// line/col identify the opening '(' so an unterminated list is
+// reported where it starts, not where the input ran out
 struct ast_node *
-parse_list(struct token_stream *ts)
+parse_list(struct token_stream *ts, struct error_ctx *ctx, size_t line, size_t col)
 {
     struct ast_node *list = ast_list();
 
     while (!is_eof(ts) && peek_token(ts).type != TOK_RPAREN) {
-        struct ast_node *expr = parse_expression(ts);
+        struct ast_node *expr = parse_expression(ts, ctx);
+        if (expr == NULL) { // error already reported below us
+            ast_node_free(list);
+            return NULL;
+        }
+
         ast_list_append(list, expr);
     }
 
     if (is_eof(ts)) {
-        fprintf(stderr, "Error: Unexpected EOF while parsing list\n");
-        exit(1);  // TODO: Better error handling
+        error_ctx_push(ctx, ERR_ERROR, line, col,
+                "Unterminated list; expected ')' before end of input");
+        ast_node_free(list);
+        return NULL;
     }
 
     consume_token(ts);  // Eat the RPAREN
@@ -47,10 +57,10 @@ parse_list(struct token_stream *ts)
 }
 
 struct ast_node *
-parse_expression(struct token_stream *ts)
+parse_expression(struct token_stream *ts, struct error_ctx *ctx)
 {
     if (is_eof(ts)) {
-        fprintf(stderr, "Error: Unexpected EOF in expression\n");
+        error_ctx_push(ctx, ERR_ERROR, 0, 0, "Unexpected end of input in expression");
         return NULL;
     }
 
@@ -59,7 +69,7 @@ parse_expression(struct token_stream *ts)
 
     if (t.type == TOK_LPAREN) {
         consume_token(ts);
-        node = parse_list(ts);
+        node = parse_list(ts, ctx, t.line, t.col);
 
         if (node != NULL) {
             node->line = t.line;
@@ -79,28 +89,56 @@ parse_expression(struct token_stream *ts)
             char *sym = mlispc_strndup(t.lexeme, t.len);
             node = ast_symbol(sym);
             free(sym);  // ast_symbol keeps its own copy
+            
             break;
         }
 
         case TOK_NUMERIC: {
             char buf[32];
+            if (t.len >= sizeof(buf)) {
+                error_ctx_push(ctx, ERR_ERROR, t.line, t.col,
+                        "Numeric literal '%.*s' is too long", (int)t.len, t.lexeme);
+                return NULL;
+            }
+
             snprintf(buf, sizeof(buf), "%.*s", (int)t.len, t.lexeme);
-            long num = strtol(buf, NULL, 10);
+
+            char *end;
+            errno = 0;
+            long num = strtol(buf, &end, 10);
+
+            if (errno == ERANGE) {
+                error_ctx_push(ctx, ERR_ERROR, t.line, t.col,
+                        "Integer literal '%s' is out of range", buf);
+                return NULL;
+            }
+
+            // lex_numeric also accepts '.' and '/' (floats, rationals);
+            // reject whatever strtol could not consume until those exist
+            if (*end != '\0') {
+                error_ctx_push(ctx, ERR_ERROR, t.line, t.col,
+                        "Unsupported numeric literal '%s' (only integers are implemented)", buf);
+                return NULL;
+            }
+
             node = ast_number(num);
+
             break;
         }
 
         case TOK_STRING: {
             char *str = mlispc_strndup(t.lexeme, t.len);
             node = ast_string(str);
-            free(str);  // ast_string keeps its own copy
+            free(str); // ast_string keeps its own copy
+            
             break;
         }
 
         default:
-            fprintf(stderr, "Error: %zu:%zu: Unexpected token type %d (lexeme: '%.*s')\n",
-                    t.line, t.col, t.type, (int)t.len, t.lexeme);
-            exit(1);
+            error_ctx_push(ctx, ERR_ERROR, t.line, t.col,
+                    "Unexpected token %s ('%.*s')",
+                    token_to_str(t.type), (int)t.len, t.lexeme);
+            return NULL;
     }
 
     if (node != NULL) {
@@ -111,17 +149,15 @@ parse_expression(struct token_stream *ts)
     return node;
 }
 
-// A program is a sequence of top-level forms; collect them
-// as children of a single root list node.
 struct ast_node *
-parse_program(struct token_stream *ts)
+parse_program(struct token_stream *ts, struct error_ctx *ctx)
 {
     struct ast_node *program = ast_list();
 
     while (!is_eof(ts)) {
-        struct ast_node *expr = parse_expression(ts);
+        struct ast_node *expr = parse_expression(ts, ctx);
         if (expr == NULL)
-            break;
+            break; // error already reported; stop at the first syntax error
 
         ast_list_append(program, expr);
     }

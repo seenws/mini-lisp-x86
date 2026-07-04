@@ -48,4 +48,6 @@ struct lexer {
     size_t          line_start; // byte offset where the current line begins
 };
 
+char const *token_to_str(enum toktype type);
+
 #endif /* MINI_LISP_X86_COMPILER_LEXER_H_ */

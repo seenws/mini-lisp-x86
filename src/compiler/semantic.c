@@ -19,6 +19,7 @@
     Purpose: Implements semantic analysis of target lisp program.
 */
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -378,7 +379,9 @@ analyze_function_call(struct ast_node *node, struct env *env, struct error_ctx *
     size_t nargs = node->as.list.count - 1;
 
     struct ast_node *op = node->as.list.children[0];
-    struct sym_info *info = env_lookup(env, op->as.symbol);  // Should exist
+    struct sym_info *info = env_lookup(env, op->as.symbol);
+
+    assert(info != NULL); // analyze_list verified this lookup before dispatching here
 
     if (nargs < (size_t)info->min_arity || (info->max_arity != -1 && nargs > (size_t)info->max_arity)) {
         if (info->max_arity == -1)

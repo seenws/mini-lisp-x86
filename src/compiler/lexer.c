@@ -189,7 +189,7 @@ lex_macro(struct lexer *l)
     struct token t;
     size_t start = l->cursor;
 
-    while (l->content[l->cursor] != '\n')
+    while (l->cursor < l->len && l->content[l->cursor] != '\n')
         l->cursor++;
 
     t.lexeme    = &l->content[start];

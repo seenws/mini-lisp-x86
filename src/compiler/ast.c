@@ -18,6 +18,7 @@
     File: ast.c
     Purpose: Implements the AST (Abstract Sytax Tree) for x86_64 code generation.
 */
+#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -114,7 +115,8 @@ ast_node_free(struct ast_node *node)
 void
 ast_list_append(struct ast_node *list, struct ast_node *node)
 {
-    if (list->type != NODE_LIST) return;
+    // appending to a non-list is caller misuse, not an input error
+    assert(list != NULL && list->type == NODE_LIST);
 
     if (list->as.list.count == list->as.list.capacity) {
         list->as.list.capacity *= 2;

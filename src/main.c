@@ -29,6 +29,7 @@
 #include "./compiler/token_stream.h"
 #include "./compiler/parser.h"
 #include "./compiler/semantic.h"
+#include "./compiler/ir.h"
 
 #include "./util/error.h"
 
@@ -57,7 +58,7 @@ read_file(char const *filename)
     char *buffer;
 
     if (fp == NULL) {
-        printf("minilisp: Cannot open file `%s`.\n", filename);
+        fprintf(stderr, "minilisp: Cannot open file `%s`.\n", filename);
         perror("Error");
         return NULL;
     }
@@ -68,7 +69,7 @@ read_file(char const *filename)
     buffer = malloc(flen + 1);
 
     if (buffer == NULL) {
-        printf("minilisp: Cannot allocate memory.\n");
+        fprintf(stderr, "minilisp: Cannot allocate memory.\n");
         perror("Error");
         return NULL;
     }
@@ -105,12 +106,31 @@ main(int argc, char **argv)
     }
 
     struct token_stream *ts = token_stream_create(&tokens);
-    struct ast_node *program = parse_program(ts);
 
     struct error_ctx *ctx = error_ctx_new(0); // default 32
     int status = 0;
 
-    analyze_program(program, ctx);
+    struct ast_node *program = parse_program(ts, ctx);
+
+    // Each stage runs only if the previous one produced no diagnostics
+    if (ctx->count == 0)
+        analyze_program(program, ctx);
+
+    if (ctx->count == 0) {
+        struct ir_program *ir = ir_program_new();
+
+        if (ir == NULL) {
+            fprintf(stderr, "Fatal: Unable to allocate IR program\n");
+            status = 1;
+        } else {
+            if (translate_program(program, ir, ctx) != 0)
+                status = 1;
+            else if (DEBUG)
+                ir_program_print(ir, stdout);
+
+            ir_program_free(ir);
+        }
+    }
 
     if (ctx->count != 0) {
         error_ctx_print(ctx);
