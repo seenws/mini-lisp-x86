@@ -9,8 +9,7 @@
 #include "../util/error.h"
 
 /*
- * The IR is three-address code (TAC): every instruction names its
- * destination and up to two sources explicitly.
+ * The IR is three-address code (TAC)
  *
  *   t2 = add t0, t1      -->  { op=IR_OP_ADD, dst=2, src1=0, src2=1 }
  *
@@ -208,9 +207,6 @@ int                 ir_new_temp         (struct ir_program *p);
 void                ir_program_print    (const struct ir_program *p, FILE *out);
 
 /* Translation must only run on a semantically validated AST */
-
-/* Translate one expression; returns the temp holding its value, or -1 on error. */
-int translate_expr(struct ast_node *node, struct ir_program *p, struct error_ctx *ctx);
 
 /* Translate a whole program (root list of top-level forms) and emit a
  * final RETURN of the last form's value. Returns 0 on success, -1 on error. */

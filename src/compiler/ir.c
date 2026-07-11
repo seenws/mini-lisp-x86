@@ -28,11 +28,26 @@
 #include "ir.h"
 #include "ast.h"
 #include "builtin_hash.h"
+#include "hashmap.h"
 #include "../util/mlispc_strdup.h"
 
 #define IR_INITIAL_CAPACITY 1024 // instructions / strings before first resize
 
-static int translate_arithmetic(struct ast_node *node, struct ir_program *p, struct error_ctx *ctx, enum builtin_type kind);
+/*
+ * Translation-time scopes: a let binding maps its name to the temp
+ * already holding the init expression's value, so a symbol reference
+ * resolves to that temp and emits nothing. This identification of
+ * variable and temp relies on bindings being immutable (the language
+ * has no setq); mutation or closures will need real storage.
+ */
+struct ir_scope {
+    struct u32hashmap *bindings; // name -> temp, stored as (void *)(temp + 1)
+    struct ir_scope *parent;
+};
+
+static int translate_expr(struct ast_node *node, struct ir_program *p, struct error_ctx *ctx, struct ir_scope *scope);
+static int translate_arithmetic(struct ast_node *node, struct ir_program *p, struct error_ctx *ctx, struct ir_scope *scope, enum builtin_type kind);
+static int translate_let(struct ast_node *node, struct ir_program *p, struct error_ctx *ctx, struct ir_scope *scope);
 
 struct ir_program *
 ir_program_new(void)
@@ -163,10 +178,59 @@ ir_new_temp(struct ir_program *p)
     return p->temp_count++;
 }
 
-int
-translate_expr(struct ast_node *node, struct ir_program *p, struct error_ctx *ctx)
+static struct ir_scope *
+ir_scope_new(struct ir_scope *parent)
 {
-    assert(node != NULL && p != NULL && ctx != NULL);
+    struct ir_scope *scope = malloc(sizeof(*scope));
+    if (scope == NULL)
+        return NULL;
+
+    scope->bindings = hashmap_new(16); // default 16 buckets
+    if (scope->bindings == NULL) {
+        free(scope);
+        return NULL;
+    }
+
+    scope->parent = parent;
+
+    return scope;
+}
+
+static void
+ir_scope_free(struct ir_scope *scope)
+{
+    if (scope == NULL)
+        return;
+
+    // values are encoded ints, nothing to free; the hashmap owns its keys
+    hashmap_free(scope->bindings);
+    free(scope);
+}
+
+// Returns the temp bound to name, or -1 if unbound in every enclosing scope.
+static int
+ir_scope_lookup(struct ir_scope *scope, const char *name)
+{
+    for (; scope != NULL; scope = scope->parent) {
+        void *val = NULL;
+        if (hashmap_lookup(scope->bindings, name, &val) == 1)
+            return (int)(intptr_t)val - 1;
+    }
+
+    return -1;
+}
+
+static int
+ir_scope_insert(struct ir_scope *scope, const char *name, int temp)
+{
+    // +1 keeps temp 0 distinct from NULL, which hashmap_insert rejects
+    return hashmap_insert(scope->bindings, name, (void *)(intptr_t)(temp + 1));
+}
+
+static int
+translate_expr(struct ast_node *node, struct ir_program *p, struct error_ctx *ctx, struct ir_scope *scope)
+{
+    assert(node != NULL && p != NULL && ctx != NULL && scope != NULL);
 
     switch (node->type) {
         case NODE_NUMBER: {
@@ -190,10 +254,16 @@ translate_expr(struct ast_node *node, struct ir_program *p, struct error_ctx *ct
             return dst;
         }
 
-        case NODE_SYMBOL:
+        case NODE_SYMBOL: {
+            int temp = ir_scope_lookup(scope, node->as.symbol);
+            if (temp >= 0)
+                return temp;
+
+            // Unbound here but past semantic analysis: a global like t/nil
             error_ctx_push(ctx, ERR_ERROR, node->line, node->col,
                     "IR translation for symbol '%s' not yet implemented", node->as.symbol);
             return -1;
+        }
 
         case NODE_LIST: {
             if (node->as.list.count == 0) {
@@ -215,7 +285,10 @@ translate_expr(struct ast_node *node, struct ir_program *p, struct error_ctx *ct
                 case BUILTIN_MINUS:
                 case BUILTIN_MUL:
                 case BUILTIN_DIV:
-                    return translate_arithmetic(node, p, ctx, kind);
+                    return translate_arithmetic(node, p, ctx, scope, kind);
+
+                case BUILTIN_LET:
+                    return translate_let(node, p, ctx, scope);
 
                 default:
                     error_ctx_push(ctx, ERR_ERROR, node->line, node->col,
@@ -241,7 +314,7 @@ translate_expr(struct ast_node *node, struct ir_program *p, struct error_ctx *ct
  *   (+ x) == x    (* x) == x    (- x) == -x    (/ x) == 1/x
  */
 static int
-translate_arithmetic(struct ast_node *node, struct ir_program *p, struct error_ctx *ctx, enum builtin_type kind)
+translate_arithmetic(struct ast_node *node, struct ir_program *p, struct error_ctx *ctx, struct ir_scope *scope, enum builtin_type kind)
 {
     enum ir_ops op;
 
@@ -252,13 +325,13 @@ translate_arithmetic(struct ast_node *node, struct ir_program *p, struct error_c
         case BUILTIN_DIV:   op = IR_OP_DIV; break;
         default:
             assert(0 && "translate_arithmetic called with non-arithmetic builtin");
-            return -1; // unreachable; keeps NDEBUG builds well-defined
+            return -1; // unreachable
     }
 
     size_t nargs = node->as.list.count - 1;
     assert(nargs >= 1); // semantic analysis rejects zero-argument arithmetic
 
-    int acc = translate_expr(node->as.list.children[1], p, ctx);
+    int acc = translate_expr(node->as.list.children[1], p, ctx, scope);
     if (acc < 0)
         return -1;
 
@@ -295,7 +368,7 @@ translate_arithmetic(struct ast_node *node, struct ir_program *p, struct error_c
     }
 
     for (size_t i = 2; i < node->as.list.count; ++i) {
-        int rhs = translate_expr(node->as.list.children[i], p, ctx);
+        int rhs = translate_expr(node->as.list.children[i], p, ctx, scope);
         if (rhs < 0)
             return -1;
 
@@ -309,27 +382,90 @@ translate_arithmetic(struct ast_node *node, struct ir_program *p, struct error_c
     return acc;
 }
 
-// The root node produced by parse_program is a list of top-level
-// forms, not itself a form -- translate each child on its own and
-// return the last form's value to the runtime.
+/*
+ * (let ((a init-a) (b init-b) ...) body...)
+ *
+ * Init expressions are translated in the OUTER scope -- this is let,
+ * not let* -- matching analyze_let. Each name is then bound to the
+ * temp holding its init value; the body's last form is the result.
+ */
+static int
+translate_let(struct ast_node *node, struct ir_program *p, struct error_ctx *ctx, struct ir_scope *scope)
+{
+    // analyze_let validated the ((sym val) ...) shape; pipeline invariant
+    struct ast_node *bindings = node->as.list.children[1];
+    assert(bindings->type == NODE_LIST);
+
+    struct ir_scope *local = ir_scope_new(scope);
+    if (local == NULL)
+        return -1;
+
+    for (size_t i = 0; i < bindings->as.list.count; ++i) {
+        struct ast_node *binding = bindings->as.list.children[i];
+        assert(binding->type == NODE_LIST && binding->as.list.count == 2);
+
+        struct ast_node *var = binding->as.list.children[0];
+        struct ast_node *val = binding->as.list.children[1];
+        assert(var->type == NODE_SYMBOL);
+
+        int temp = translate_expr(val, p, ctx, scope);
+        if (temp < 0 || ir_scope_insert(local, var->as.symbol, temp) != 0) {
+            ir_scope_free(local);
+            return -1;
+        }
+    }
+
+    if (node->as.list.count == 2) {
+        // An empty body evaluates to nil in Common Lisp
+        error_ctx_push(ctx, ERR_ERROR, node->line, node->col,
+                "IR translation for 'let' with empty body not yet implemented (nil)");
+        ir_scope_free(local);
+        return -1;
+    }
+
+    int result = -1;
+    for (size_t i = 2; i < node->as.list.count; ++i) {
+        result = translate_expr(node->as.list.children[i], p, ctx, local);
+        if (result < 0) {
+            ir_scope_free(local);
+            return -1;
+        }
+    }
+
+    ir_scope_free(local);
+    return result;
+}
+
+// The root node produced by parse_program is a list of top-level forms.
+// Translate each child on its own and return the last form's value to the runtime.
 int
 translate_program(struct ast_node *program, struct ir_program *p, struct error_ctx *ctx)
 {
     assert(program != NULL && p != NULL && ctx != NULL);
 
+    struct ir_scope *global = ir_scope_new(NULL);
+    if (global == NULL)
+        return -1;
+
     int last = IR_NONE;
 
     if (program->type == NODE_LIST) {
         for (size_t i = 0; i < program->as.list.count; ++i) {
-            last = translate_expr(program->as.list.children[i], p, ctx);
-            if (last < 0)
+            last = translate_expr(program->as.list.children[i], p, ctx, global);
+            if (last < 0) {
+                ir_scope_free(global);
                 return -1;
+            }
         }
     } else {
-        last = translate_expr(program, p, ctx);
-        if (last < 0)
+        last = translate_expr(program, p, ctx, global);
+        if (last < 0) {
+            ir_scope_free(global);
             return -1;
+        }
     }
+
+    ir_scope_free(global);
 
     if (last != IR_NONE)
         if (ir_emit(p, IR_OP_RETURN, IR_NONE, last, IR_NONE, 0) != 0)
