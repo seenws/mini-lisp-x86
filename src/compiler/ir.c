@@ -48,6 +48,8 @@ struct ir_scope {
 static int translate_expr(struct ast_node *node, struct ir_program *p, struct error_ctx *ctx, struct ir_scope *scope);
 static int translate_arithmetic(struct ast_node *node, struct ir_program *p, struct error_ctx *ctx, struct ir_scope *scope, enum builtin_type kind);
 static int translate_let(struct ast_node *node, struct ir_program *p, struct error_ctx *ctx, struct ir_scope *scope);
+static int translate_if(struct ast_node *node, struct ir_program *p, struct error_ctx *ctx, struct ir_scope *scope);
+static int translate_nil(struct ir_program *p);
 
 struct ir_program *
 ir_program_new(void)
@@ -65,6 +67,7 @@ ir_program_new(void)
     p->str_capacity = IR_INITIAL_CAPACITY;
 
     p->temp_count = 0;
+    p->label_count = 0;
 
     if (p->instructions == NULL || p->strings == NULL) {
         ir_program_free(p); // allocation failure, abort
@@ -178,6 +181,14 @@ ir_new_temp(struct ir_program *p)
     return p->temp_count++;
 }
 
+int
+ir_new_label(struct ir_program *p)
+{
+    assert(p != NULL);
+
+    return p->label_count++;
+}
+
 static struct ir_scope *
 ir_scope_new(struct ir_scope *parent)
 {
@@ -259,18 +270,27 @@ translate_expr(struct ast_node *node, struct ir_program *p, struct error_ctx *ct
             if (temp >= 0)
                 return temp;
 
-            // Unbound here but past semantic analysis: a global like t/nil
+            // Not let-bound: the self-evaluating globals, or a symbol
+            // semantic analysis accepted but translation can't place yet
+            if (strcmp(node->as.symbol, "nil") == 0)
+                return translate_nil(p);
+
+            if (strcmp(node->as.symbol, "t") == 0) {
+                int dst = ir_new_temp(p);
+                if (ir_emit(p, IR_OP_LOAD_IMM, dst, IR_NONE, IR_NONE, T_WORD) != 0)
+                    return -1;
+
+                return dst;
+            }
+
             error_ctx_push(ctx, ERR_ERROR, node->line, node->col,
                     "IR translation for symbol '%s' not yet implemented", node->as.symbol);
             return -1;
         }
 
         case NODE_LIST: {
-            if (node->as.list.count == 0) {
-                error_ctx_push(ctx, ERR_ERROR, node->line, node->col,
-                        "IR translation for nil not yet implemented");
-                return -1;
-            }
+            if (node->as.list.count == 0)
+                return translate_nil(p); // () is nil
 
             struct ast_node *op = node->as.list.children[0];
 
@@ -290,6 +310,9 @@ translate_expr(struct ast_node *node, struct ir_program *p, struct error_ctx *ct
                 case BUILTIN_LET:
                     return translate_let(node, p, ctx, scope);
 
+                case BUILTIN_IF:
+                    return translate_if(node, p, ctx, scope);
+
                 default:
                     error_ctx_push(ctx, ERR_ERROR, node->line, node->col,
                             "IR translation for '%s' not yet implemented", op->as.symbol);
@@ -298,9 +321,7 @@ translate_expr(struct ast_node *node, struct ir_program *p, struct error_ctx *ct
         }
 
         case NODE_NIL:
-            error_ctx_push(ctx, ERR_ERROR, node->line, node->col,
-                    "IR translation for nil not yet implemented");
-            return -1;
+            return translate_nil(p);
     }
 
     return -1;
@@ -382,6 +403,74 @@ translate_arithmetic(struct ast_node *node, struct ir_program *p, struct error_c
     return acc;
 }
 
+// nil is an immediate constant, so loading it is just a LOAD_IMM
+static int
+translate_nil(struct ir_program *p)
+{
+    int dst = ir_new_temp(p);
+    if (ir_emit(p, IR_OP_LOAD_IMM, dst, IR_NONE, IR_NONE, NIL_WORD) != 0)
+        return -1;
+
+    return dst;
+}
+
+/*
+ * (if test then [else])
+ *
+ * Lisp truthiness: only nil is false. A one-armed if whose test fails
+ * evaluates to nil.
+ *
+ * Both arms copy their value into a shared result temp -- TAC's
+ * stand-in for an SSA phi node -- so `res` is written twice: single
+ * assignment ends at join points.
+ *
+ *   t_test = <test>
+ *   jmp_if_nil t_test, L_else
+ *   <then>; res = t_then
+ *   jmp L_end
+ * L_else:
+ *   <else>; res = t_else
+ * L_end:
+ */
+static int
+translate_if(struct ast_node *node, struct ir_program *p, struct error_ctx *ctx, struct ir_scope *scope)
+{
+    // analyze_if validated 2 or 3 arguments; pipeline invariant
+    assert(node->as.list.count == 3 || node->as.list.count == 4);
+
+    int test = translate_expr(node->as.list.children[1], p, ctx, scope);
+    if (test < 0)
+        return -1;
+
+    int l_else = ir_new_label(p);
+    int l_end = ir_new_label(p);
+    int res = ir_new_temp(p);
+
+    if (ir_emit(p, IR_OP_JMP_IF_NIL, IR_NONE, test, IR_NONE, l_else) != 0)
+        return -1;
+
+    int then = translate_expr(node->as.list.children[2], p, ctx, scope);
+    if (then < 0)
+        return -1;
+
+    if (ir_emit(p, IR_OP_MOV, res, then, IR_NONE, 0) != 0 ||
+        ir_emit(p, IR_OP_JMP, IR_NONE, IR_NONE, IR_NONE, l_end) != 0 ||
+        ir_emit(p, IR_OP_LABEL, IR_NONE, IR_NONE, IR_NONE, l_else) != 0)
+        return -1;
+
+    int alt = node->as.list.count == 4
+        ? translate_expr(node->as.list.children[3], p, ctx, scope)
+        : translate_nil(p);
+    if (alt < 0)
+        return -1;
+
+    if (ir_emit(p, IR_OP_MOV, res, alt, IR_NONE, 0) != 0 ||
+        ir_emit(p, IR_OP_LABEL, IR_NONE, IR_NONE, IR_NONE, l_end) != 0)
+        return -1;
+
+    return res;
+}
+
 /*
  * (let ((a init-a) (b init-b) ...) body...)
  *
@@ -415,15 +504,8 @@ translate_let(struct ast_node *node, struct ir_program *p, struct error_ctx *ctx
         }
     }
 
-    if (node->as.list.count == 2) {
-        // An empty body evaluates to nil in Common Lisp
-        error_ctx_push(ctx, ERR_ERROR, node->line, node->col,
-                "IR translation for 'let' with empty body not yet implemented (nil)");
-        ir_scope_free(local);
-        return -1;
-    }
-
-    int result = -1;
+    // An empty body evaluates to nil
+    int result = node->as.list.count == 2 ? translate_nil(p) : -1;
     for (size_t i = 2; i < node->as.list.count; ++i) {
         result = translate_expr(node->as.list.children[i], p, ctx, local);
         if (result < 0) {
@@ -478,8 +560,7 @@ static const char *ir_op_names[IR_OP_COUNT] = {
     [IR_OP_NOP]          = "nop",
     [IR_OP_LOAD_IMM]     = "load_imm",
     [IR_OP_LOAD_STR]     = "load_str",
-    [IR_OP_LOAD_SYM]     = "load_sym",
-    [IR_OP_LOAD_NIL]     = "load_nil",
+    [IR_OP_MOV]          = "mov",
     [IR_OP_ADD]          = "add",
     [IR_OP_SUB]          = "sub",
     [IR_OP_MUL]          = "mul",
@@ -489,6 +570,8 @@ static const char *ir_op_names[IR_OP_COUNT] = {
     [IR_OP_CALL]         = "call",
     [IR_OP_RETURN]       = "ret",
     [IR_OP_JMP]          = "jmp",
+    [IR_OP_JMP_IF_NIL]   = "jmp_if_nil",
+    [IR_OP_LABEL]        = "label",
 };
 
 void
@@ -505,7 +588,12 @@ ir_program_print(const struct ir_program *p, FILE *out)
 
         switch (instr->op) {
             case IR_OP_LOAD_IMM:
-                fprintf(out, "t%d = %ld\n", instr->dst, DECODE_INTEGER(instr->imm));
+                if (IS_NIL(instr->imm))
+                    fprintf(out, "t%d = nil\n", instr->dst);
+                else if (IS_T(instr->imm))
+                    fprintf(out, "t%d = t\n", instr->dst);
+                else
+                    fprintf(out, "t%d = %ld\n", instr->dst, DECODE_INTEGER(instr->imm));
                 break;
 
             case IR_OP_LOAD_STR:
@@ -523,6 +611,22 @@ ir_program_print(const struct ir_program *p, FILE *out)
 
             case IR_OP_NEG:
                 fprintf(out, "t%d = neg t%d\n", instr->dst, instr->src1);
+                break;
+
+            case IR_OP_MOV:
+                fprintf(out, "t%d = t%d\n", instr->dst, instr->src1);
+                break;
+
+            case IR_OP_JMP:
+                fprintf(out, "jmp L%ld\n", (long)instr->imm);
+                break;
+
+            case IR_OP_JMP_IF_NIL:
+                fprintf(out, "jmp_if_nil t%d, L%ld\n", instr->src1, (long)instr->imm);
+                break;
+
+            case IR_OP_LABEL:
+                fprintf(out, "L%ld:\n", (long)instr->imm);
                 break;
 
             case IR_OP_RETURN:

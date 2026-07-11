@@ -23,6 +23,11 @@
  *   ADD/SUB  work directly on tagged integers (the 00 tag survives)
  *   MUL      (a<<2) * (b<<2) == (a*b)<<4, so untag one operand first
  *   DIV      untag both operands, divide, re-encode the quotient
+ *   truth    only nil is false: JMP_IF_NIL is `cmp reg, NIL_WORD; je`
+ *
+ * Control flow stays a flat instruction stream: IR_OP_LABEL is a
+ * no-op marker carrying a label id (from a per-program counter), and
+ * jumps name label ids in imm. Codegen turns label ids into .L<n>:.
  */
 
 #define IR_NONE (-1)  // "this operand field is unused"
@@ -53,6 +58,20 @@ typedef int64_t word;  // 64-bit tagged object
  *               = 0b...000100000000001
  */
 #define STRING_TAG    0x1
+
+/*
+ * nil and t are immediate constants under the low-3-bits tag 0b111,
+ * which cannot collide with integers (low 2 bits 00) or strings
+ * (low 3 bits 001). Distinguished from each other by bit 3.
+ *
+ *   nil = 0b0111 (0x7)   the only false value; also the empty list
+ *   t   = 0b1111 (0xF)   the canonical true value
+ */
+#define NIL_WORD ((word)0x7)
+#define T_WORD   ((word)0xF)
+
+#define IS_NIL(obj) ((word)(obj) == NIL_WORD)
+#define IS_T(obj)   ((word)(obj) == T_WORD)
 
 /*
  * ENCODE_INTEGER(value)
@@ -162,10 +181,9 @@ typedef int64_t word;  // 64-bit tagged object
 
 enum ir_ops {
     IR_OP_NOP = 0,
-    IR_OP_LOAD_IMM,     // dst = imm (tagged constant)
+    IR_OP_LOAD_IMM,     // dst = imm (tagged constant: integer, nil or t)
     IR_OP_LOAD_STR,     // dst = tagged address of strings[imm]
-    IR_OP_LOAD_SYM,     // dst = value of variable (future)
-    IR_OP_LOAD_NIL,     // dst = nil (representation TBD)
+    IR_OP_MOV,          // dst = src1 (join-point copy; ends single assignment)
     IR_OP_ADD,          // dst = src1 + src2
     IR_OP_SUB,          // dst = src1 - src2
     IR_OP_MUL,          // dst = src1 * src2
@@ -174,7 +192,9 @@ enum ir_ops {
     IR_OP_CALL_BUILTIN,
     IR_OP_CALL,
     IR_OP_RETURN,       // return src1 to the runtime
-    IR_OP_JMP,
+    IR_OP_JMP,          // jump to label imm
+    IR_OP_JMP_IF_NIL,   // jump to label imm when src1 == NIL_WORD
+    IR_OP_LABEL,        // no-op jump target; imm = label id
     IR_OP_COUNT
 };
 
@@ -195,7 +215,8 @@ struct ir_program {
     size_t str_count;
     size_t str_capacity;
 
-    int temp_count; // next virtual register number
+    int temp_count;  // next virtual register number
+    int label_count; // next label id
 };
 
 struct ir_program  *ir_program_new      (void);
@@ -204,6 +225,7 @@ int                 ir_emit             (struct ir_program *p, enum ir_ops op,
                                          int dst, int src1, int src2, int64_t imm);
 int64_t             ir_program_str_push (struct ir_program *p, const char *str);
 int                 ir_new_temp         (struct ir_program *p);
+int                 ir_new_label        (struct ir_program *p);
 void                ir_program_print    (const struct ir_program *p, FILE *out);
 
 /* Translation must only run on a semantically validated AST */
