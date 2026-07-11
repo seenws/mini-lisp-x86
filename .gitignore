@@ -3,3 +3,4 @@
 vgcore.*
 a.out
 lispc
+*.bin

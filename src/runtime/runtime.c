@@ -16,7 +16,8 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
     File: runtime.c
-    Purpose: TODO
+    Purpose: Process entry for compiled programs; calls the generated
+    lisp_entry and prints its tagged-word result.
 */
 
 #include <stdio.h>
@@ -38,7 +39,7 @@ runtime_print(int64_t obj)
 }
 
 int
-main(int argc, char **argv)
+main(void)
 {
     int64_t res = lisp_entry();
 

@@ -16,9 +16,9 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
     File: main.c
-    Purpose: Entry point for the mlispc compiler driver; reads a source file
-    and drives it through the lexer, parser, and semantic analyzer, reporting
-    any diagnostics.
+    Purpose: Entry point for the mlispc compiler driver; reads a source file,
+    drives it through the lexer, parser, semantic analyzer, IR translation and
+    codegen, reporting any diagnostics, and writes <input>.s on success.
 */
 
 #include <stdio.h>
@@ -30,6 +30,7 @@
 #include "./compiler/parser.h"
 #include "./compiler/semantic.h"
 #include "./compiler/ir.h"
+#include "./compiler/codegen.h"
 
 #include "./util/error.h"
 
@@ -81,6 +82,58 @@ read_file(char const *filename)
     return buffer;
 }
 
+/* ! returns malloc'd buffer: "<input>.lisp" -> "<input>.s",
+ * any other extension just gets ".s" appended */
+static char *
+derive_asm_path(const char *input)
+{
+    size_t len = strlen(input);
+    const char *ext = ".lisp";
+    size_t ext_len = strlen(ext);
+
+    if (len >= ext_len && strcmp(input + len - ext_len, ext) == 0)
+        len -= ext_len;
+
+    char *path = malloc(len + 3); // ".s" + NUL
+    if (path == NULL)
+        return NULL;
+
+    memcpy(path, input, len);
+    memcpy(path + len, ".s", 3);
+
+    return path;
+}
+
+static int
+emit_asm_file(const struct ir_program *ir, const char *source_path)
+{
+    char *asm_path = derive_asm_path(source_path);
+    if (asm_path == NULL) {
+        fprintf(stderr, "minilisp: Cannot allocate memory.\n");
+        return 1;
+    }
+
+    FILE *out = fopen(asm_path, "w");
+    if (out == NULL) {
+        fprintf(stderr, "minilisp: Cannot open output file `%s`.\n", asm_path);
+        perror("Error");
+        free(asm_path);
+        return 1;
+    }
+
+    int status = 0;
+
+    if (codegen_emit(ir, out) != 0) {
+        fprintf(stderr, "minilisp: Failed to write `%s`.\n", asm_path);
+        status = 1;
+    }
+
+    fclose(out);
+    free(asm_path);
+
+    return status;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -123,10 +176,14 @@ main(int argc, char **argv)
             fprintf(stderr, "Fatal: Unable to allocate IR program\n");
             status = 1;
         } else {
-            if (translate_program(program, ir, ctx) != 0)
+            if (translate_program(program, ir, ctx) != 0) {
                 status = 1;
-            else if (DEBUG)
-                ir_program_print(ir, stdout);
+            } else {
+                if (DEBUG)
+                    ir_program_print(ir, stdout);
+
+                status = emit_asm_file(ir, argv[1]);
+            }
 
             ir_program_free(ir);
         }

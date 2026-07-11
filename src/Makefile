@@ -15,6 +15,7 @@ OBJECTS = \
 	$(BUILD_DIR)/compiler/builtin_hash.o \
 	$(BUILD_DIR)/compiler/semantic.o \
 	$(BUILD_DIR)/compiler/ir.o \
+	$(BUILD_DIR)/compiler/codegen.o \
 	$(BUILD_DIR)/util/mlispc_strdup.o \
 	$(BUILD_DIR)/util/error.o \
 	$(BUILD_DIR)/util/mlispc_strndup.o
@@ -36,8 +37,21 @@ $(BUILD_DIR)/util/%.o: ./util/%.c
 	@mkdir -p build/util
 	$(CC) $(CFLAGS) -c $< -o $@
 
+RUNTIME_OBJ = $(BUILD_DIR)/runtime/runtime.o
+
+$(RUNTIME_OBJ): runtime/runtime.c
+	@mkdir -p $(BUILD_DIR)/runtime
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Compile and link a lisp program against the runtime:
+#   make tests/stage_1/04_arithmetic.bin && ./tests/stage_1/04_arithmetic.bin
+%.bin: %.lisp $(TARGET) $(RUNTIME_OBJ)
+	./$(TARGET) $<
+	$(CC) $*.s $(RUNTIME_OBJ) -o $@
+
 clean:
 	rm -rf $(BUILD_DIR) $(TARGET)
+	find tests -name '*.s' -delete -o -name '*.bin' -delete
 
 # auto-generated header dependencies (-MMD)
 -include $(OBJECTS:.o=.d)
