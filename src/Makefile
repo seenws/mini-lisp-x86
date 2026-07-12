@@ -3,6 +3,7 @@ CFLAGS = -Wall -Wextra -std=iso9899:1999 -g -O0 -I. -MMD -MP
 
 BUILD_DIR = build
 TARGET = lispc
+RUNTIME_OBJ = $(BUILD_DIR)/runtime/runtime.o
 
 OBJECTS = \
 	$(BUILD_DIR)/main.o \
@@ -20,7 +21,7 @@ OBJECTS = \
 	$(BUILD_DIR)/util/error.o \
 	$(BUILD_DIR)/util/mlispc_strndup.o
 
-all: $(TARGET)
+all: $(TARGET) $(RUNTIME_OBJ)
 
 $(TARGET): $(OBJECTS)
 	$(CC) $(OBJECTS) -o $@
@@ -37,8 +38,6 @@ $(BUILD_DIR)/util/%.o: ./util/%.c
 	@mkdir -p build/util
 	$(CC) $(CFLAGS) -c $< -o $@
 
-RUNTIME_OBJ = $(BUILD_DIR)/runtime/runtime.o
-
 $(RUNTIME_OBJ): runtime/runtime.c
 	@mkdir -p $(BUILD_DIR)/runtime
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -54,7 +53,7 @@ clean:
 	find tests -name '*.s' -delete -o -name '*.bin' -delete
 
 # auto-generated header dependencies (-MMD)
--include $(OBJECTS:.o=.d)
+-include $(OBJECTS:.o=.d) $(RUNTIME_OBJ:.o=.d)
 
 .PHONY: all clean
 

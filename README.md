@@ -1,94 +1,87 @@
 # Mini Lisp Compiler (x86_64)
 
-A Common-Lisp-to-x86_64 compiler written in C from scratch.
+A Common-Lisp-to-x86_64 compiler written in C from scratch — no external
+dependencies, no compiler frameworks.
 
-Currently in early development — implements a complete lexer, parser, and AST generation for basic Lisp expressions.
-
----
-
-## Current Features
-
-### Lexical Analysis
-- **Dispatch table-based tokenization** for efficient character-level parsing
-- Full support for:
-  - Parentheses: `(`, `)`
-  - Symbols: `format`, `t`, `my-variable`
-  - Strings: `"hello world!"`
-  - Numbers: `42`, `3.14`, `-17`
-  - Operators: `+`, `-`, `*`, `/`
-  - Keywords: `:example`, `:key`
-  - Comments: `; like this`
-
-### Parsing & AST Generation
-- Recursive descent parser
-- Abstract Syntax Tree (AST) with proper node types:
-  - `NODE_SYMBOL`
-  - `NODE_STRING`
-  - `NODE_NUMBER`
-  - `NODE_LIST`
-  - `NODE_NIL`
-- Memory-safe string handling with custom `strdup`/`strndup` implementations
-
-### Example
-```lisp
-(format t "Hello, world!")
-```
-
-Produces a complete AST with properly typed nodes.
-
-### Proof check:
-```bash
-gdb ./lispc
-break main.c:57 # as of the time of writing, line 57 is where we free the token stream.
-```
-```gdb
-run tests/stage_1/01_simple_print.lisp
-p program->as.list.children[0]->as.symbol
-p program->as.list.children[1]->as.symbol
-p program->as.list.children[2]->as.symbol
-
-p program->as.list.children[1].type
-p program->as.list.children[2].type
-p program->as.list.children[3].type
-```
-```gdb
-$1 = 0x55555555aa30 "format"
-$2 = 0x55555555aaa0 "t"
-$3 = 0x55555555ab10 "Hello, World!"
-
-$4 = NODE_SYMBOL
-$5 = NODE_SYMBOL
-$6 = NODE_STRING
-```
+The full pipeline (lexer, parser, semantic analysis, three-address-code IR,
+x86_64 codegen) works end-to-end for a growing language subset: source files
+compile to native Linux executables.
 
 ---
 
-## Building
+## Quick start
 
-### Requirements
-- GCC or any C99-compatible compiler
-- Standard C library (no external dependencies)
-
-### Compile and Run
 ```bash
 make
-./lispc <file.lisp>
+cd src
 ```
+
+```lisp
+; average.lisp
+(let ((a 10)
+      (b 20))
+  (/ (+ a b) 2))
+```
+
+```bash
+$ ./lispc average.lisp                             # writes average.s
+$ gcc average.s build/runtime/runtime.o -o average
+$ ./average
+15
+```
+
+A program returns the value of its last top-level form; the runtime prints
+it. For the bundled test programs there's a make shortcut that does all
+three steps:
+
+```bash
+$ make tests/stage_2/01_variable_binding.bin
+$ ./tests/stage_2/01_variable_binding.bin
+30
+```
+
+Requires GCC (or any C99 compiler) on x86_64 Linux. `make clean` removes
+all build output, including generated `.s`/`.bin` files.
 
 ---
 
-## Project Structure
+## Language support
+
+Working today:
+
+- Integers, string literals, `nil`, `t`, `()`
+- Arithmetic `+ - * /` with Common Lisp semantics (variadic left-fold,
+  unary negation/reciprocal)
+- `let` bindings, including shadowing and nested scopes
+- `if`, one- and two-armed, arbitrarily nested (only `nil` is false)
+
+Not yet: `format`, comparison predicates, `defun`/`lambda`, quote, lists.
+Unsupported forms are rejected with source-located diagnostics rather than
+miscompiled.
+
+---
+
+## Project structure
+
 ```
 src/
 ├── compiler/
 │   ├── lexer.c       # Tokenization
 │   ├── parser.c      # Parsing & AST construction
-│   └── ast.c         # AST node creation and management
-├── util/
-│   ├── mlispc_strdup.c
-│   └── mlispc_strndup.c
-└── main.c
+│   ├── ast.c         # AST node creation and management
+│   ├── semantic.c    # Scope/arity validation, diagnostics
+│   ├── ir.c          # AST → three-address code
+│   └── codegen.c     # IR → x86_64 assembly
+├── runtime/
+│   └── runtime.c     # Process entry; prints the program's result
+├── util/             # error context, strdup/strndup
+├── tests/            # stage_{1,2,3}/*.lisp test programs
+└── main.c            # driver
 ```
+
+Design decisions are documented where they live: `compiler/ir.h` covers the
+IR and the tagged value encoding, `compiler/codegen.h` the register
+allocation strategy.
 
 ---
 
@@ -98,8 +91,13 @@ src/
 - [x] Token stream abstraction
 - [x] AST generation
 - [x] Semantic analysis
-- [ ] Intermediate representation (IR)
-- [ ] x86_64 code generation
-- [ ] Basic runtime system
+- [x] Intermediate representation (three-address code)
+- [x] x86_64 code generation (spill everything)
+- [x] Basic runtime system (result printing)
+- [ ] `format` and the builtin calling convention
+- [ ] Comparison predicates `< > =`
+- [ ] Constant folding (AST → AST pass)
+- [ ] Functions: `defun`, `lambda`, recursion
+- [ ] Linear-scan register allocation
 
 ---
